@@ -1,0 +1,26 @@
+[target.'cfg(all())']
+rustflags = [
+  "-Dkeyword_idents",
+  "-Dlet_underscore_drop",
+  "-Wmeta-variable-misuse",
+  "-Wmissing-debug-implementations",
+  "-Wmissing_docs",
+  "-Wnon_ascii_idents",
+  "-Dunsafe_code",
+  "-Wbad_style",
+  "-Wclippy::all",
+  "-Wclippy::await_holding_lock",
+  "-Wclippy::cargo",
+  "-Wclippy::clone_on_ref_ptr",
+  "-Wclippy::missing_docs_in_private_items",
+  "-Wimproper_ctypes",
+  "-Wmissing_docs",
+  "-Woverflowing_literals",
+  "-Wpatterns_in_fns_without_body",
+  "-Wtrivial_casts",
+  "-Wtrivial_numeric_casts",
+  "-Wunused_extern_crates",
+
+  "-Aclippy::cargo-common-metadata",
+  "-Aclippy::type_complexity",
+]
