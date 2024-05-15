@@ -1,9 +1,8 @@
 //! Telegram handlers.
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
-use std::{collections::HashSet, str::FromStr};
+use std::str::FromStr;
 
-use chain::{AccountSettings, ActiveFeature, TUser};
 use subxt::utils::AccountId32;
 use teloxide::{
     dispatching::{dialogue::ErasedStorage, UpdateHandler},
@@ -11,6 +10,8 @@ use teloxide::{
     types::{BotCommand, BotCommandScope},
     utils::command::BotCommands,
 };
+
+use crate::SubscriptionUpdate;
 
 use super::{
     messages, teloxide_ext::efficient_dialogue_enter, ActivateFeaturesCommand, Command,
@@ -37,9 +38,12 @@ pub fn schema() -> UpdateHandler<HanderError> {
                 .endpoint(set_validator_address),
         )
         .branch(
-            case![ActivateFeaturesCommand::SetBiomapperAddress { address }]
-                .endpoint(set_biomapper_address),
+            case![ActivateFeaturesCommand::ClearValidatorAddress].endpoint(clear_validator_address),
         )
+        // .branch(
+        //     case![ActivateFeaturesCommand::SetBiomapperAddress { address }]
+        //         .endpoint(set_biomapper_address),
+        // )
         .branch(case![ActivateFeaturesCommand::Cancel].endpoint(activate_features_cancel));
 
     let settings_commands = teloxide::filter_command::<SettingsCommand, _>()
@@ -87,6 +91,7 @@ async fn help(bot: Bot, msg: Message) -> HandlerResult {
 async fn start(bot: Bot, msg: Message) -> HandlerResult {
     bot.send_message(msg.chat.id, messages::MESSAGE_WELCOME)
         .await?;
+
     Ok(())
 }
 
@@ -121,47 +126,62 @@ async fn set_validator_address(
     bot: Bot,
     msg: Message,
     dialogue: StateDialogue,
-    tx: tokio::sync::mpsc::Sender<AccountSettings>,
+    tx: tokio::sync::mpsc::Sender<SubscriptionUpdate>,
     address: String,
 ) -> HandlerResult {
-    let account_id = AccountId32::from_str(&address);
-    match account_id {
+    match AccountId32::from_str(&address) {
         Err(error) => {
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "Invalid address: {address}, error: {error}",
-                    address = address,
-                    error = error
-                ),
-            )
-            .await?;
+            tracing::error!(message = "account32 construct error", ?error);
+
             Ok(())
         }
-        Ok(value) => {
-            let mut active_features = HashSet::<ActiveFeature>::new();
-            active_features.insert(ActiveFeature::ActiveValidator);
-
-            let chat_id: i64 = msg.chat.id.to_string().parse()?;
-
-            tx.send(AccountSettings {
-                address: value,
-                active_features,
-                t_user: TUser { chat_id },
-            })
-            .await?;
+        Ok(account32) => {
+            tracing::info!(message = "account32 parsed", ?account32);
+            if let Err(error) = tx
+                .send(SubscriptionUpdate {
+                    chat_id: msg.chat.id.0,
+                    validator_public_key: Some(account32.0),
+                })
+                .await
+            {
+                tracing::error!(message = "send error", %error);
+            }
 
             bot.send_message(msg.chat.id, messages::MESSAGE_SET_VALIDATOR_ADDRESS)
                 .await?;
             dialogue.exit().await?;
             commands_reset(&msg, &bot).await?;
+
             Ok(())
         }
     }
 }
 
+/// Handle the clear validator address.
+async fn clear_validator_address(
+    bot: Bot,
+    msg: Message,
+    dialogue: StateDialogue,
+    tx: tokio::sync::mpsc::Sender<SubscriptionUpdate>,
+) -> HandlerResult {
+    let chat_id: i64 = msg.chat.id.to_string().parse()?;
+
+    tx.send(SubscriptionUpdate {
+        chat_id,
+        validator_public_key: None,
+    })
+    .await?;
+
+    bot.send_message(msg.chat.id, messages::MESSAGE_SET_VALIDATOR_ADDRESS)
+        .await?;
+    dialogue.exit().await?;
+    commands_reset(&msg, &bot).await?;
+
+    Ok(())
+}
+
 /// Handle the set validator address.
-async fn set_biomapper_address(bot: Bot, msg: Message, dialogue: StateDialogue) -> HandlerResult {
+async fn _set_biomapper_address(bot: Bot, msg: Message, dialogue: StateDialogue) -> HandlerResult {
     bot.send_message(msg.chat.id, messages::MESSAGE_SET_BIOMAPPER_ADDRESS)
         .await?;
     dialogue.exit().await?;

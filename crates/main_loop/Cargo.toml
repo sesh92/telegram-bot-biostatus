@@ -1,0 +1,15 @@
+[package]
+name = "main_loop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logic = { version = "0.1", path = "../logic" }
+block_subscription = { version = "0.1", path = "../block_subscription" }
+database = { version = "0.1", path = "../database" }
+telegram = { version = "0.1", path = "../telegram" }
+
+anyhow = "1"
+hex = "0.4"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.37"

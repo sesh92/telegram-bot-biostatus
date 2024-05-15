@@ -1,11 +1,11 @@
 //! Telegram implementation.
-#![allow(missing_docs)]
+
+#![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
 mod handlers;
 mod messages;
 mod teloxide_ext;
 
-use chain::AccountSettings;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -16,15 +16,12 @@ use teloxide::{dispatching::ShutdownToken, prelude::*};
 /// Redis storage.
 type MyStorage = std::sync::Arc<ErasedStorage<State>>;
 
+/// Telegram encapsulates the interface to the telegram.
 #[derive(Derivative)]
 #[derivative(Debug)]
-/// Telegram encapsulates the interface to the telegram.
 pub struct Telegram {
     /// The underlying Telegram Bot client.
     pub bot: Bot,
-    pub bot_notifier: Bot,
-    pub account_settings_tx: tokio::sync::mpsc::Sender<AccountSettings>,
-    pub notification_rx: tokio::sync::mpsc::Receiver<AccountSettings>,
     #[derivative(Debug = "ignore")]
     pub storage: MyStorage,
 }
@@ -55,8 +52,12 @@ pub enum ActivateFeaturesCommand {
     Help,
     #[command(description = "set public substrate address for watch validator status (hm...)")]
     SetValidatorAddress { address: String },
-    #[command(description = "set public evm address for watch biomapper status (0x...)")]
-    SetBiomapperAddress { address: String },
+    #[command(description = "clear public substrate address to unwatch validator status")]
+    ClearValidatorAddress,
+    // #[command(description = "set public evm address for watch biomapper status (0x...)")]
+    // SetBiomapperAddress { address: String },
+    // #[command(description = "clear public evm address to unwatch biomapper status")]
+    // ClearBiomapperAddress,
     #[command(description = "cancel the operation")]
     Cancel,
 }
@@ -87,6 +88,42 @@ pub enum State {
     Settings,
 }
 
+#[derive(Debug)]
+pub struct SubscriptionUpdate {
+    pub chat_id: i64,
+    pub validator_public_key: Option<[u8; 32]>,
+}
+
+#[derive(Debug)]
+pub struct SubscriptionUpdateHandle {
+    rx: tokio::sync::mpsc::Receiver<SubscriptionUpdate>,
+}
+
+impl SubscriptionUpdateHandle {
+    pub async fn next(&mut self) -> Option<SubscriptionUpdate> {
+        self.rx.recv().await
+    }
+}
+
+#[derive(Debug)]
+pub struct BioauthLostNotification {
+    pub chat_id: i64,
+}
+
+#[derive(Debug)]
+pub struct NotificationHandle {
+    tx: tokio::sync::mpsc::Sender<BioauthLostNotification>,
+}
+
+impl NotificationHandle {
+    pub async fn send_bioauth_lost_notification(&self, chat_id: i64) -> Result<(), anyhow::Error> {
+        self.tx
+            .send(BioauthLostNotification { chat_id })
+            .await
+            .map_err(|_| anyhow::format_err!("NotificationHandle error"))
+    }
+}
+
 ///  dialogue.
 pub type StateDialogue = Dialogue<State, ErasedStorage<State>>;
 
@@ -98,38 +135,53 @@ impl Telegram {
     }
 
     /// Prepare the control future and a shutdown token.
-    pub fn setup(self) -> (impl Future, ShutdownToken) {
-        let Telegram {
-            bot,
-            bot_notifier,
-            account_settings_tx,
-            mut notification_rx,
-            storage,
-        } = self;
+    pub fn setup(
+        self,
+    ) -> (
+        impl Future,
+        ShutdownToken,
+        SubscriptionUpdateHandle,
+        NotificationHandle,
+    ) {
+        let Telegram { bot, storage } = self;
 
-        tokio::spawn(async move {
-            loop {
-                let account_settings = notification_rx.recv().await;
-                match account_settings {
-                    Some(account_settings) => {
-                        let res = bot_notifier
-                            .send_message(
-                                ChatId(account_settings.t_user.chat_id),
-                                "you are not in a active validators list",
-                            )
-                            .await;
+        let (subscription_update_tx, subscription_update_rx) =
+            tokio::sync::mpsc::channel::<SubscriptionUpdate>(1000);
+        let (notification_handle_tx, mut notification_handle_rx) =
+            tokio::sync::mpsc::channel::<BioauthLostNotification>(1000);
+        let subscription_update_handle = SubscriptionUpdateHandle {
+            rx: subscription_update_rx,
+        };
+        let notification_handle = NotificationHandle {
+            tx: notification_handle_tx,
+        };
+        {
+            let bot = bot.clone();
 
-                        if let Err(error) = res {
-                            tracing::error!(message = "notifier error", ?error);
-                        }
-                    }
-                    None => continue,
+            tokio::spawn(async move {
+                loop {
+                    let message = notification_handle_rx.recv().await;
+                    if let Some(message) = message {
+                        let BioauthLostNotification { chat_id } = message;
+                        {
+                            let res = bot
+                                .send_message(
+                                    ChatId(chat_id),
+                                    "You have lost bio-authentication to be an active validator.",
+                                )
+                                .await;
+
+                            if let Err(error) = res {
+                                tracing::error!(message = "notifier error", ?error);
+                            };
+                        };
+                    };
                 }
-            }
-        });
+            });
+        }
 
         let mut dispatcher = Dispatcher::builder(bot, handlers::schema())
-            .dependencies(dptree::deps![account_settings_tx, storage])
+            .dependencies(dptree::deps![subscription_update_tx, storage])
             .build();
 
         let shutdown_token = dispatcher.shutdown_token();
@@ -138,6 +190,11 @@ impl Telegram {
             dispatcher.dispatch().await;
         };
 
-        (fut, shutdown_token)
+        (
+            fut,
+            shutdown_token,
+            subscription_update_handle,
+            notification_handle,
+        )
     }
 }

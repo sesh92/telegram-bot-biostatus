@@ -1,0 +1,10 @@
+[package]
+name = "block_subscription"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+anyhow = "1.0.71"
+subxt = "0.35"
+tracing = "0.1.37"

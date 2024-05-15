@@ -1,5 +1,8 @@
 //! The entrypoint to the biostatus.
+
 #![allow(missing_docs)]
+
+use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
 use teloxide::{
     dispatching::dialogue::{serializer::Bincode, RedisStorage, Storage},
@@ -13,9 +16,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let rpc_url: String = envfury::must("RPC_URL")?;
     let redis_url: String = envfury::must("REDIS_URL")?;
     let telegram_token: String = envfury::must("TELOXIDE_TOKEN")?;
-
-    let (chain_tx, chain_rx) = tokio::sync::mpsc::channel(100);
-    let (telegram_tx, telegram_rx) = tokio::sync::mpsc::channel(100);
+    let database_url: String = envfury::must("DATABASE_URL")?;
 
     let reqwest = teloxide::net::default_reqwest_settings().build()?;
 
@@ -24,48 +25,47 @@ async fn main() -> Result<(), anyhow::Error> {
         .unwrap()
         .erase();
 
-    let bot = teloxide::Bot::with_client(telegram_token.clone(), reqwest.clone());
-    let bot_notifier = teloxide::Bot::with_client(telegram_token, reqwest);
+    let bot = teloxide::Bot::with_client(telegram_token, reqwest);
 
     let me = bot.get_me().await?;
 
     tracing::info!(message = "Bot info", ?me);
 
-    tokio::spawn(async move {
-        let api = chain::construct_api(rpc_url).await;
-        match api {
-            Err(error) => tracing::error!(message = "construct_api error", ?error),
-            Ok(api) => {
-                if let Err(error) = chain::subscribe_active_authentications(
-                    chain::SubscribeActiveAuthenticationsParams {
-                        api,
-                        account_settings_rx: telegram_rx,
-                        account_notification_tx: chain_tx,
-                    },
-                )
-                .await
-                {
-                    tracing::error!(message = "subscribe_active_authentications exited", ?error);
-                }
-            }
-        }
-    });
-
-    let telegram = telegram::Telegram {
-        bot,
-        bot_notifier,
-        account_settings_tx: telegram_tx,
-        notification_rx: chain_rx,
-        storage,
+    let db_pool = {
+        let manager =
+            AsyncDieselConnectionManager::<diesel_async::AsyncPgConnection>::new(database_url);
+        diesel_async::pooled_connection::bb8::Pool::builder()
+            .build(manager)
+            .await
+            .unwrap()
     };
+
+    let db = database::db::Db { pool: db_pool };
+    let api = block_subscription::BlockSubscription::construct_api(rpc_url).await?;
+
+    let block_subscription = block_subscription::BlockSubscription::subscribe(api).await?;
+
+    let telegram = telegram::Telegram { bot, storage };
 
     telegram.set_commands().await?;
 
-    let (fut, shutdown_token) = telegram.setup();
+    let (fut, shutdown_token, subscription_update_handle, telegram_notification_handler) =
+        telegram.setup();
     tracing::info!("Telegram commands successfully setup");
+
+    let mut loops = main_loop::run(main_loop::Params {
+        block_subscription,
+        db,
+        subscription_update_handle,
+        telegram_notification_handler,
+    })
+    .await?;
+
+    tracing::info!("Main loop successfully run");
 
     setup_shutdown_handler(shutdown_token);
     fut.await;
+    loops.shutdown().await;
 
     tracing::info!(message = "Shutdown complete");
     Ok(())

@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chain = { version = "0.1", path = "../chain" }
+channel_messages = { version = "0.1", path = "../channel_messages" }
 
 anyhow = "1.0.71"
 derivative = "2"
+hex = "0.4"
 indoc = "2"
 serde = "1"
 subxt = "0.35"
