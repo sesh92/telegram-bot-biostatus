@@ -2,7 +2,7 @@
 
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
-use crate::schema::account_settings;
+use crate::schema::bioauth_subscriptions;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql},
@@ -38,15 +38,22 @@ impl<const N: usize> From<ByteArray<N>> for [u8; N] {
     }
 }
 
-/// Model for load init validator value.
+/// Model for load init validator with settings values.
 #[derive(Debug, Queryable, Selectable)]
-#[diesel(table_name = account_settings)]
-pub struct InitValidator {
+#[diesel(table_name = bioauth_subscriptions)]
+pub struct LoadForInitialization {
     /// The telegram user's chat id.
     pub t_chat_id: i64,
+
     /// Validator public key
-    #[diesel(select_expression_type = diesel::dsl::AssumeNotNull<account_settings::validator_public_key>)]
-    #[diesel(select_expression = account_settings::validator_public_key.assume_not_null())]
     #[diesel(deserialize_as = ByteArray<32>)]
     pub validator_public_key: [u8; 32],
+
+    /// Frequency in blocks for notifying active validator.
+    #[diesel(deserialize_as = i32)]
+    pub max_message_frequency_in_blocks: u32,
+
+    /// Notify a few minutes before expiration.
+    #[diesel(deserialize_as = i64)]
+    pub alert_before_expiration_in_mins: u64,
 }

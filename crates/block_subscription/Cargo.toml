@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 
-anyhow = "1.0.71"
-subxt = "0.35"
-tracing = "0.1.37"
+anyhow = "1"
+subxt = "0.36"
+tracing = "0.1"

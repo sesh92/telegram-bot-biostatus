@@ -91,7 +91,7 @@ pub enum State {
 #[derive(Debug)]
 pub struct SubscriptionUpdate {
     pub chat_id: i64,
-    pub validator_public_key: Option<[u8; 32]>,
+    pub bioauth_public_key: [u8; 32],
 }
 
 #[derive(Debug)]
@@ -106,19 +106,17 @@ impl SubscriptionUpdateHandle {
 }
 
 #[derive(Debug)]
-pub struct BioauthLostNotification {
-    pub chat_id: i64,
-}
-
-#[derive(Debug)]
 pub struct NotificationHandle {
-    tx: tokio::sync::mpsc::Sender<BioauthLostNotification>,
+    tx: tokio::sync::mpsc::Sender<channel_messages::Notification>,
 }
 
 impl NotificationHandle {
-    pub async fn send_bioauth_lost_notification(&self, chat_id: i64) -> Result<(), anyhow::Error> {
+    pub async fn send_notification(
+        &self,
+        notification: channel_messages::Notification,
+    ) -> Result<(), anyhow::Error> {
         self.tx
-            .send(BioauthLostNotification { chat_id })
+            .send(notification)
             .await
             .map_err(|_| anyhow::format_err!("NotificationHandle error"))
     }
@@ -148,7 +146,7 @@ impl Telegram {
         let (subscription_update_tx, subscription_update_rx) =
             tokio::sync::mpsc::channel::<SubscriptionUpdate>(1000);
         let (notification_handle_tx, mut notification_handle_rx) =
-            tokio::sync::mpsc::channel::<BioauthLostNotification>(1000);
+            tokio::sync::mpsc::channel::<channel_messages::Notification>(1000);
         let subscription_update_handle = SubscriptionUpdateHandle {
             rx: subscription_update_rx,
         };
@@ -160,20 +158,27 @@ impl Telegram {
 
             tokio::spawn(async move {
                 loop {
-                    let message = notification_handle_rx.recv().await;
-                    if let Some(message) = message {
-                        let BioauthLostNotification { chat_id } = message;
-                        {
-                            let res = bot
-                                .send_message(
+                    let notification = notification_handle_rx.recv().await;
+                    if let Some(notification) = notification {
+                        let res = match notification {
+                            channel_messages::Notification::BioauthLostNotification { chat_id } => {
+                                bot.send_message(
                                     ChatId(chat_id),
                                     "You have lost bio-authentication to be an active validator.",
                                 )
-                                .await;
+                                .await
+                            }
+                            channel_messages::Notification::BioauthSoonExpiredAlert { chat_id } => {
+                                bot.send_message(
+                                    ChatId(chat_id),
+                                    "You will lost bio-authentication soon",
+                                )
+                                .await
+                            }
+                        };
 
-                            if let Err(error) = res {
-                                tracing::error!(message = "notifier error", ?error);
-                            };
+                        if let Err(error) = res {
+                            tracing::error!(message = "notifier error", ?error);
                         };
                     };
                 }

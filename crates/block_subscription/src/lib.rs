@@ -22,11 +22,11 @@ pub struct BlockSubscription {
 
 #[derive(Debug)]
 pub struct BlockInfo {
-    pub active_authentications_map: HashMap<ValidatorKey, u64>,
+    pub active_authentications_map: HashMap<ValidatorPublicKey, u64>,
     pub block_number: u32,
 }
 
-type ValidatorKey = [u8; 32];
+type ValidatorPublicKey = [u8; 32];
 
 impl BlockSubscription {
     pub async fn construct_api(url: String) -> Result<OnlineClient<PolkadotConfig>, subxt::Error> {

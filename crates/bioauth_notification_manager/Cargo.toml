@@ -1,0 +1,11 @@
+[package]
+name = "bioauth_notification_manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+telegram = { version = "0.1", path = "../telegram" }
+channel_messages = { version = "0.1", path = "../channel_messages" }
+
+anyhow = "1"
+tracing = "0.1"

@@ -1,0 +1,11 @@
+[package]
+name = "bioauth_logic"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
+bioauth_notification_manager = { version = "0.1", path = "../bioauth_notification_manager" }
+
+anyhow = "1"
+tracing = "0.1"

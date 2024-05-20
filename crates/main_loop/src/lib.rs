@@ -4,9 +4,11 @@
 
 use std::sync::Arc;
 
+use bioauth_logic::BioauthLogic;
+use bioauth_notification_manager::BioauthNotificationManager;
+use bioauth_settings::{BioauthSettings, BioauthSettingsMap};
 use block_subscription::BlockSubscription;
 use database::db::Db;
-use logic::Logic;
 use tokio::{sync::Mutex, task::JoinSet};
 
 #[derive(Debug)]
@@ -25,25 +27,38 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
         mut subscription_update_handle,
     } = params;
 
-    let all_validator_info = db.load_init_validators().await?;
+    let all_loaded_data = db.load_for_initialization().await?;
 
-    tracing::info!(message = "Got validator", ?all_validator_info);
+    tracing::info!(message = "Got all load", ?all_loaded_data);
+    let mut bioauths = vec![];
+    let mut bioauth_settings = BioauthSettingsMap::new();
 
-    let validators = all_validator_info
-        .into_iter()
-        .map(|validator_info| logic::InitParamValidator {
-            t_chat_id: validator_info.t_chat_id,
-            validator_public_key: validator_info.validator_public_key,
-        })
-        .collect();
+    for data in all_loaded_data {
+        bioauths.push(bioauth_logic::InitParamBioauth {
+            t_chat_id: data.t_chat_id,
+            bioauth_public_key: data.validator_public_key,
+        });
 
-    let logic = Logic::init(logic::InitParams { validators });
+        bioauth_settings.update(
+            data.t_chat_id,
+            BioauthSettings {
+                alert_before_expiration_in_mins: data.alert_before_expiration_in_mins,
+                max_message_frequency_in_blocks: data.max_message_frequency_in_blocks,
+            },
+        );
+    }
 
-    let logic = Arc::new(Mutex::new(logic));
+    let bioauth_logic = BioauthLogic::init(bioauth_logic::InitParams { bioauths });
+
+    let mut bioauth_notification_manager =
+        BioauthNotificationManager::new(telegram_notification_handler);
+
+    let bioauth_logic = Arc::new(Mutex::new(bioauth_logic));
+    let bioauth_settings_map = BioauthSettingsMap::new();
 
     let mut tasks = tokio::task::JoinSet::new();
     {
-        let logic = Arc::clone(&logic);
+        let bioauth_logic = Arc::clone(&bioauth_logic);
         tasks.spawn(async move {
             loop {
                 let block_subscription::BlockInfo {
@@ -51,45 +66,58 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                     active_authentications_map,
                 } = block_subscription.next_block().await.unwrap();
 
-                let chat_ids = {
-                    let mut logic = logic.lock().await;
-                    logic.new_block(logic::NewBlockParams {
+                let (chats_map, block_number) = {
+                    let mut logic = bioauth_logic.lock().await;
+                    logic.new_block(bioauth_logic::NewBlockParams {
                         active_authentications_map,
                         block_number,
                     })
                 };
 
-                for chat_id in chat_ids {
-                    tracing::info!(message = "Notify to", ?chat_id);
+                bioauth_notification_manager.notify(block_number).await;
+                bioauth_notification_manager.alert().await;
 
-                    telegram_notification_handler
-                        .send_bioauth_lost_notification(chat_id)
-                        .await
-                        .unwrap();
-                }
+                chats_map.iter().for_each(|(chat_id, subscriptions)| {
+                    let settings = bioauth_settings_map.get(chat_id);
+                    tracing::info!(
+                        message = "Propcess collected subscriptions from new block",
+                        chat_id = ?chat_id,
+                        subscription_len = subscriptions.keys().len()
+                    );
+                    for expired_at in subscriptions.values() {
+                        bioauth_notification_manager.register(
+                            chat_id,
+                            settings.alert_before_expiration_in_mins,
+                            settings.max_message_frequency_in_blocks,
+                            block_number,
+                            expired_at.as_ref(),
+                        );
+                    }
+                });
             }
         });
     }
 
     {
-        let logic = Arc::clone(&logic);
+        let bioauth_logic = Arc::clone(&bioauth_logic);
         tasks.spawn(async move {
             loop {
                 let telegram::SubscriptionUpdate {
                     chat_id: t_chat_id,
-                    validator_public_key,
+                    bioauth_public_key,
                 } = subscription_update_handle.next().await.unwrap();
 
                 {
-                    let mut logic = logic.lock().await;
-                    logic.update_subscription(logic::UpdateSubscriptionParams {
+                    let mut bioauth_logic = bioauth_logic.lock().await;
+
+                    bioauth_logic.update_subscription(bioauth_logic::UpdateSubscriptionParams {
                         t_chat_id,
-                        validator_public_key,
+                        bioauth_public_key,
                     });
                 }
-                tracing::info!(message = "New subscriptions", ?validator_public_key);
+                tracing::info!(message = "New subscriptions", ?bioauth_public_key);
 
-                db.set_validator_public_key(t_chat_id, validator_public_key.as_ref())
+                db.bioauth_subscribe(t_chat_id, &bioauth_public_key)
                     .await
                     .unwrap();
             }

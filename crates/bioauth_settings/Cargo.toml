@@ -1,9 +1,6 @@
 [package]
-name = "logic"
+name = "bioauth_settings"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-
-anyhow = "1.0.71"
-tracing = "0.1"

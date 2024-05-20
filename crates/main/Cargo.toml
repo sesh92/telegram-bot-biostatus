@@ -9,12 +9,12 @@ telegram = { version = "0.1", path = "../telegram" }
 main_loop = { version = "0.1", path = "../main_loop" }
 block_subscription = { version = "0.1", path = "../block_subscription" }
 
-anyhow = "1.0.71"
+anyhow = "1"
 diesel = { version = "2.1", features = ["postgres"] }
 diesel-async = { version = "0.4", features = ["postgres", "bb8"] }
 envfury = "0.2"
 hex = "0.4"
 teloxide = { version = "0.12", features = ["macros", "bincode-serializer", "redis-storage"] }
 tokio = { version = "1", features = ["full"] }
-tracing = "0.1.37"
-tracing-subscriber = "0.3.17"
+tracing = "0.1"
+tracing-subscriber = "0.3"

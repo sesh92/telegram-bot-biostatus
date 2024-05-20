@@ -2,9 +2,9 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
 #[derive(Debug)]
-pub enum ChainMessage {
-    ValidatorExpired { chat_id: i64, public_key: String },
-    BiomapperExpired { chat_id: i64, public_key: String },
+pub enum Notification {
+    BioauthLostNotification { chat_id: i64 },
+    BioauthSoonExpiredAlert { chat_id: i64 },
 }
 
 #[derive(Debug)]

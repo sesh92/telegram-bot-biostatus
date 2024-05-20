@@ -140,7 +140,7 @@ async fn set_validator_address(
             if let Err(error) = tx
                 .send(SubscriptionUpdate {
                     chat_id: msg.chat.id.0,
-                    validator_public_key: Some(account32.0),
+                    bioauth_public_key: account32.0,
                 })
                 .await
             {
@@ -162,15 +162,16 @@ async fn clear_validator_address(
     bot: Bot,
     msg: Message,
     dialogue: StateDialogue,
-    tx: tokio::sync::mpsc::Sender<SubscriptionUpdate>,
+    _tx: tokio::sync::mpsc::Sender<SubscriptionUpdate>,
 ) -> HandlerResult {
-    let chat_id: i64 = msg.chat.id.to_string().parse()?;
+    // let chat_id: i64 = msg.chat.id.to_string().parse()?;
 
-    tx.send(SubscriptionUpdate {
-        chat_id,
-        validator_public_key: None,
-    })
-    .await?;
+    // TODO: unsubscribe
+    // tx.send(SubscriptionUpdate {
+    //     chat_id,
+    //     bioauth_public_key: None,
+    // })
+    // .await?;
 
     bot.send_message(msg.chat.id, messages::MESSAGE_SET_VALIDATOR_ADDRESS)
         .await?;

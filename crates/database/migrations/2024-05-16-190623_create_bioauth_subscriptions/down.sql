@@ -1,2 +1,2 @@
 -- This file should undo anything in `up.sql`
-DROP TABLE account_settings;
+DROP TABLE bioauth_subscriptions;
