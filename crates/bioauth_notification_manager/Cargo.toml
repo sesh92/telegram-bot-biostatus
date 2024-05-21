@@ -9,3 +9,7 @@ channel_messages = { version = "0.1", path = "../channel_messages" }
 
 anyhow = "1"
 tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tracing-test = "0.2"

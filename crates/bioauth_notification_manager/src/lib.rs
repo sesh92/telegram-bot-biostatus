@@ -92,7 +92,7 @@ impl BioauthNotificationManager {
                             ..Default::default()
                         },
                     );
-                    tracing::info!(message = "Updated alert_at", ?chat_id, ?alert_at);
+                    tracing::info!(message = "Alerted, alert_at removed", ?chat_id);
                 }
             }
         }
@@ -100,7 +100,12 @@ impl BioauthNotificationManager {
 
     pub async fn notify(&mut self, block_number: u32) {
         for (chat_id, state) in self.map.iter_mut() {
-            tracing::info!(message = "Notify process", ?chat_id);
+            tracing::info!(message = "Notify process",
+                ?chat_id,
+                next_block_number_to_notify = ?state.next_block_number_to_notify,
+                ?block_number
+            );
+
             if state.next_block_number_to_notify > block_number {
                 continue;
             }
@@ -113,12 +118,12 @@ impl BioauthNotificationManager {
                 })
                 .await;
 
-            state.last_block_number_notified = block_number;
-            tracing::info!(message = "Updated last_block_number_notified", ?chat_id, last_block_number_notified = ?state.last_block_number_notified);
-
             if let Err(error) = res {
                 tracing::error!(message = "Send notification error", ?error);
             }
+
+            state.last_block_number_notified = block_number;
+            tracing::info!(message = "Updated last_block_number_notified", ?chat_id, last_block_number_notified = ?state.last_block_number_notified);
         }
     }
 
@@ -129,11 +134,11 @@ impl BioauthNotificationManager {
             .expect("Time went backwards");
         let timestamp = since_the_epoch.as_secs();
 
-        for (chat_id, state) in self.map.iter() {
+        for (chat_id, state) in self.map.iter_mut() {
             match state.alert_at {
                 None => continue,
                 Some(alert_at) => {
-                    if alert_at < timestamp {
+                    if alert_at > timestamp {
                         continue;
                     }
                 }
@@ -149,6 +154,12 @@ impl BioauthNotificationManager {
             if let Err(error) = res {
                 tracing::error!(message = "Send notification error", ?error);
             }
+
+            state.alert_at = None;
+            tracing::info!(message = "Updated alert_at", ?chat_id, alert_at = ?state.alert_at);
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

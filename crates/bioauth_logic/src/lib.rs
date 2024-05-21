@@ -103,3 +103,6 @@ where
             .subscribe(bioauth_public_key, t_chat_id);
     }
 }
+
+#[cfg(test)]
+mod tests;

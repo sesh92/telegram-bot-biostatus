@@ -107,7 +107,7 @@ impl SubscriptionUpdateHandle {
 
 #[derive(Debug)]
 pub struct NotificationHandle {
-    tx: tokio::sync::mpsc::Sender<channel_messages::Notification>,
+    pub tx: tokio::sync::mpsc::Sender<channel_messages::Notification>,
 }
 
 impl NotificationHandle {
