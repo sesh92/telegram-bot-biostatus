@@ -1,12 +1,16 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
+use std::{collections::HashMap, hash::Hash};
 
 use crate::ChatId;
 
+#[derive(Debug, Clone, Default)]
+pub struct BioauthNotificationState {
+    pub last_block_number_notified: u32,
+    pub next_block_number_to_notify: u32,
+    pub alerted_at: Option<u64>,
+}
+
 #[derive(Debug)]
-pub struct BioauthSubscriptionMap<Key>(HashMap<Key, HashSet<ChatId>>);
+pub struct BioauthSubscriptionMap<Key>(HashMap<Key, HashMap<ChatId, BioauthNotificationState>>);
 
 impl<Key> Default for BioauthSubscriptionMap<Key> {
     fn default() -> Self {
@@ -20,27 +24,39 @@ impl<Key> BioauthSubscriptionMap<Key> {
     }
 }
 
+#[derive(Debug)]
+pub struct BioauthSubscriptionMapIter<'a, Key> {
+    inner: std::collections::hash_map::IterMut<'a, Key, HashMap<ChatId, BioauthNotificationState>>,
+}
+
+impl<'a, Key> Iterator for BioauthSubscriptionMapIter<'a, Key> {
+    type Item = (&'a Key, &'a mut HashMap<ChatId, BioauthNotificationState>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
 impl<Key> BioauthSubscriptionMap<Key>
 where
     Key: Hash + Eq,
 {
-    pub fn get(&self, key: &Key) -> Option<&HashSet<ChatId>> {
-        let chats = self.0.get(key);
-        chats
+    pub fn get(&self, key: &Key) -> Option<&HashMap<ChatId, BioauthNotificationState>> {
+        self.0.get(key)
     }
 
-    pub fn subscribe(&mut self, key: Key, chat_id: ChatId) {
+    pub fn subscribe(&mut self, key: Key, chat_id: ChatId, state: BioauthNotificationState) {
         let entry = self.0.entry(key);
 
         match entry {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
                 let chat_ids_set = entry.get_mut();
-                chat_ids_set.insert(chat_id);
+                chat_ids_set.insert(chat_id, state);
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                let mut chat_ids_set = HashSet::new();
-                chat_ids_set.insert(chat_id);
-                entry.insert(chat_ids_set);
+                let mut states_map = HashMap::new();
+                states_map.insert(chat_id, state);
+                entry.insert(states_map);
             }
         };
     }
@@ -50,14 +66,22 @@ where
 
         match entry {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
-                let chat_ids_set = entry.get_mut();
-                chat_ids_set.remove(&chat_id);
+                let state_map = entry.get_mut();
+                state_map.remove(&chat_id);
             }
             std::collections::hash_map::Entry::Vacant(_) => {}
         };
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, Key, HashSet<ChatId>> {
-        self.0.iter()
+    pub fn unsubscribe_all(&mut self, chat_id: ChatId) {
+        for (_, states) in self.0.iter_mut() {
+            states.remove(&chat_id);
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> BioauthSubscriptionMapIter<'_, Key> {
+        BioauthSubscriptionMapIter {
+            inner: self.0.iter_mut(),
+        }
     }
 }

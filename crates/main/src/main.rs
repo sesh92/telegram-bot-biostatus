@@ -19,14 +19,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let database_url: String = envfury::must("DATABASE_URL")?;
 
     let reqwest = teloxide::net::default_reqwest_settings().build()?;
-
     let storage = RedisStorage::open(redis_url, Bincode)
         .await
         .unwrap()
         .erase();
-
     let bot = teloxide::Bot::with_client(telegram_token, reqwest);
-
     let me = bot.get_me().await?;
 
     tracing::info!(message = "Bot info", ?me);
@@ -39,25 +36,23 @@ async fn main() -> Result<(), anyhow::Error> {
             .await
             .unwrap()
     };
-
     let db = database::db::Db { pool: db_pool };
     let api = block_subscription::BlockSubscription::construct_api(rpc_url).await?;
-
     let block_subscription = block_subscription::BlockSubscription::subscribe(api).await?;
-
     let telegram = telegram::Telegram { bot, storage };
 
     telegram.set_commands().await?;
 
-    let (fut, shutdown_token, subscription_update_handle, telegram_notification_handler) =
+    let (fut, shutdown_token, subscription_update_handle, telegram_notification_handle) =
         telegram.setup();
+
     tracing::info!("Telegram commands successfully setup");
 
     let mut loops = main_loop::run(main_loop::Params {
         block_subscription,
         db,
         subscription_update_handle,
-        telegram_notification_handler,
+        telegram_notification_handle,
     })
     .await?;
 
