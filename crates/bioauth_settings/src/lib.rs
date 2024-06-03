@@ -1,6 +1,9 @@
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 #[derive(Debug, Clone)]
 pub struct BioauthSettings {
@@ -47,6 +50,18 @@ where
             None => &DEFAULT_SETTINGS,
             Some(val) => val,
         }
+    }
+
+    pub fn get_all_subscriptions_by_id(&self, by_id: i64) -> HashSet<Key> {
+        let mut subscriptions = HashSet::new();
+        self.0.keys().for_each(|(id, key)| {
+            if by_id != *id {
+                return;
+            }
+            subscriptions.insert(key.clone());
+        });
+
+        subscriptions
     }
 
     pub fn update(&mut self, key: (i64, Key), settings: BioauthSettings) {

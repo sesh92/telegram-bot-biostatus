@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use bioauth_logic::{BioauthLogic, FailedNotification};
-use bioauth_settings::{BioauthSettings, BioauthSettingsMap};
+use bioauth_settings::BioauthSettings;
 use block_subscription::BlockSubscription;
 use database::db::Db;
 use tokio::{sync::Mutex, task::JoinSet};
@@ -16,6 +16,8 @@ pub struct Params {
     pub block_subscription: BlockSubscription,
     pub telegram_notification_handle: telegram::NotificationHandle,
     pub subscription_update_handle: telegram::SubscriptionUpdateHandle,
+    pub rw_bioauth_settings_map:
+        Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
 }
 
 pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
@@ -24,27 +26,33 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
         mut block_subscription,
         telegram_notification_handle,
         mut subscription_update_handle,
+        rw_bioauth_settings_map,
     } = params;
 
     let all_loaded_data = db.load_for_initialization().await?;
 
     tracing::info!(message = "Got all load", ?all_loaded_data);
     let mut bioauths = vec![];
-    let mut bioauth_settings = BioauthSettingsMap::new();
 
-    for data in all_loaded_data {
-        bioauths.push(bioauth_logic::InitParamBioauth {
-            t_chat_id: data.t_chat_id,
-            bioauth_public_key: data.validator_public_key,
-        });
+    {
+        let mut bioauth_settings = rw_bioauth_settings_map.write().await;
 
-        bioauth_settings.update(
-            (data.t_chat_id, data.validator_public_key),
-            BioauthSettings {
-                alert_before_expiration_in_mins: data.alert_before_expiration_in_mins,
-                max_message_frequency_in_blocks: data.max_message_frequency_in_blocks,
-            },
-        );
+        for data in all_loaded_data {
+            tracing::info!(message = "main loop initializing data", ?data);
+
+            bioauths.push(bioauth_logic::InitParamBioauth {
+                t_chat_id: data.t_chat_id,
+                bioauth_public_key: data.validator_public_key,
+            });
+
+            bioauth_settings.update(
+                (data.t_chat_id, data.validator_public_key),
+                BioauthSettings {
+                    alert_before_expiration_in_mins: data.alert_before_expiration_in_mins,
+                    max_message_frequency_in_blocks: data.max_message_frequency_in_blocks,
+                },
+            );
+        }
     }
 
     let bioauth_logic = BioauthLogic::init(bioauth_logic::InitParams { bioauths });
@@ -53,12 +61,12 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
         tokio::sync::mpsc::channel(10_000);
 
     let bioauth_logic = Arc::new(Mutex::new(bioauth_logic));
-    let bioauth_settings_map = Arc::new(Mutex::new(BioauthSettingsMap::new()));
 
     let mut tasks = tokio::task::JoinSet::new();
     {
         let bioauth_logic = Arc::clone(&bioauth_logic);
-        let bioauth_settings_map = Arc::clone(&bioauth_settings_map);
+        let telegram_notification_handle = telegram_notification_handle.clone();
+        let rw_bioauth_settings_map = Arc::clone(&rw_bioauth_settings_map);
 
         tasks.spawn(async move {
             let limit = 10_000;
@@ -72,9 +80,11 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
 
                 let notifications = {
                     let mut logic = bioauth_logic.lock().await;
-                    let bioauth_settings_map = bioauth_settings_map.lock().await;
-
+                    let bioauth_settings_map = rw_bioauth_settings_map.read().await;
                     loop {
+                        if notification_failures_rx.is_empty() {
+                            break;
+                        }
                         let size = notification_failures_rx
                             .recv_many(&mut notification_failures_buffer, limit)
                             .await;
@@ -111,10 +121,11 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                     let telegram_notification_handle = telegram_notification_handle.clone();
 
                     tokio::spawn(async move {
-                        if let Err(telegram::SendNotificationError { notification }) =
-                            telegram_notification_handle
-                                .send_notification(notification)
-                                .await
+                        if let Err(telegram::bioauth_handlers::SendNotificationError {
+                            notification,
+                        }) = telegram_notification_handle
+                            .send_notification(notification)
+                            .await
                         {
                             let _ = notification_failures_tx.send(notification).await;
                         }
@@ -126,11 +137,14 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
 
     {
         let bioauth_logic = Arc::clone(&bioauth_logic);
-        let bioauth_settings_map = Arc::clone(&bioauth_settings_map);
+        let rw_bioauth_settings_map = Arc::clone(&rw_bioauth_settings_map);
         tasks.spawn(async move {
             loop {
                 let subscription_update = subscription_update_handle.next().await.unwrap();
-
+                tracing::info!(
+                    message = "Got new subscription_update",
+                    ?subscription_update
+                );
                 match subscription_update {
                     telegram::SubscriptionUpdate::SubscribeToValidator {
                         chat_id: t_chat_id,
@@ -145,7 +159,8 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                                     bioauth_public_key,
                                 },
                             );
-                        }
+                        };
+
                         tracing::info!(
                             message = "SubscribeToValidator",
                             ?t_chat_id,
@@ -197,7 +212,7 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                         bioauth_public_key,
                         alert_before_expiration_in_mins,
                     } => {
-                        let mut bioauth_settings_map = bioauth_settings_map.lock().await;
+                        let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
                         bioauth_settings_map.update_alert_before_expiration_in_mins(
                             (chat_id, bioauth_public_key),
                             alert_before_expiration_in_mins,
@@ -208,7 +223,7 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                         bioauth_public_key,
                         max_message_frequency_in_blocks,
                     } => {
-                        let mut bioauth_settings_map = bioauth_settings_map.lock().await;
+                        let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
 
                         bioauth_settings_map.update_max_message_frequency_in_blocks(
                             (chat_id, bioauth_public_key),

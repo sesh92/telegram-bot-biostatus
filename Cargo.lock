@@ -322,19 +322,7 @@ name = "bioauth_logic"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bioauth_notification_manager",
  "bioauth_settings",
- "tracing",
-]
-
-[[package]]
-name = "bioauth_notification_manager"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "channel_messages",
- "telegram",
- "tokio",
  "tracing",
  "tracing-test",
 ]
@@ -519,10 +507,6 @@ dependencies = [
  "cipher",
  "cpufeatures",
 ]
-
-[[package]]
-name = "channel_messages"
-version = "0.1.0"
 
 [[package]]
 name = "chrono"
@@ -1775,7 +1759,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bioauth_logic",
- "bioauth_notification_manager",
  "bioauth_settings",
  "block_subscription",
  "database",
@@ -3456,7 +3439,8 @@ name = "telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "channel_messages",
+ "bioauth_logic",
+ "bioauth_settings",
  "derivative",
  "hex",
  "indoc",
@@ -3472,6 +3456,7 @@ name = "telegram-bot-biostatus"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bioauth_settings",
  "block_subscription",
  "database",
  "diesel",

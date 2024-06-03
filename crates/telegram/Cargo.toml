@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-channel_messages = { version = "0.1", path = "../channel_messages" }
+bioauth_logic = { version = "0.1", path = "../bioauth_logic" }
+bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
 
 anyhow = "1"
 derivative = "2"
@@ -15,3 +16,6 @@ subxt = "0.36"
 teloxide = { version = "0.12", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+
+[features]
+test-utils = []

@@ -2,6 +2,8 @@
 
 #![allow(missing_docs)]
 
+use std::sync::Arc;
+
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
 use teloxide::{
@@ -9,6 +11,7 @@ use teloxide::{
     dispatching::ShutdownToken,
     requests::Requester,
 };
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -39,7 +42,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let db = database::db::Db { pool: db_pool };
     let api = block_subscription::BlockSubscription::construct_api(rpc_url).await?;
     let block_subscription = block_subscription::BlockSubscription::subscribe(api).await?;
-    let telegram = telegram::Telegram { bot, storage };
+    let bioauth_settings_map = bioauth_settings::BioauthSettingsMap::new();
+    let rw_bioauth_settings_map = Arc::new(RwLock::new(bioauth_settings_map));
+
+    let telegram = telegram::Telegram {
+        bot,
+        storage,
+        rw_bioauth_settings_map: Arc::clone(&rw_bioauth_settings_map),
+    };
 
     telegram.set_commands().await?;
 
@@ -53,6 +63,7 @@ async fn main() -> Result<(), anyhow::Error> {
         db,
         subscription_update_handle,
         telegram_notification_handle,
+        rw_bioauth_settings_map: Arc::clone(&rw_bioauth_settings_map),
     })
     .await?;
 

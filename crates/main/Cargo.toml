@@ -8,6 +8,7 @@ database = { version = "0.1", path = "../database" }
 telegram = { version = "0.1", path = "../telegram" }
 main_loop = { version = "0.1", path = "../main_loop" }
 block_subscription = { version = "0.1", path = "../block_subscription" }
+bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
 
 anyhow = "1"
 diesel = { version = "2.1", features = ["postgres"] }

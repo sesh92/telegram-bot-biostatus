@@ -2,19 +2,22 @@
 
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
+pub mod bioauth_handlers;
 mod handlers;
 mod messages;
-mod teloxide_ext;
 
+use bioauth_handlers::SendNotificationError;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use handlers::State as GlobalState;
 use std::future::Future;
+use std::sync::Arc;
+use subxt::utils::AccountId32;
 use teloxide::dispatching::dialogue::ErasedStorage;
 use teloxide::utils::command::BotCommands;
 use teloxide::{dispatching::ShutdownToken, prelude::*};
 
 /// Redis storage.
-type MyStorage = std::sync::Arc<ErasedStorage<State>>;
+type MyStorage = Arc<ErasedStorage<GlobalState>>;
 
 /// Telegram encapsulates the interface to the telegram.
 #[derive(Derivative)]
@@ -24,74 +27,33 @@ pub struct Telegram {
     pub bot: Bot,
     #[derivative(Debug = "ignore")]
     pub storage: MyStorage,
-}
-
-#[derive(BotCommands, Clone, Debug)]
-#[command(
-    rename_rule = "lowercase",
-    description = "These commands are supported:"
-)]
-pub enum Command {
-    #[command(description = "display this text")]
-    Help,
-    #[command(description = "see the welcome message")]
-    Start,
-    #[command(description = "see the features list")]
-    ActivateFeatures,
-    #[command(description = "see the notification settings")]
-    Settings,
-}
-
-#[derive(BotCommands, Clone, Debug)]
-#[command(
-    rename_rule = "lowercase",
-    description = "These commands are supported:"
-)]
-pub enum ActivateFeaturesCommand {
-    #[command(description = "display this text")]
-    Help,
-    #[command(description = "set public substrate address for watch validator status (hm...)")]
-    SetValidatorAddress { address: String },
-    #[command(description = "clear public substrate address to unwatch validator status")]
-    ClearValidatorAddress,
-    // #[command(description = "set public evm address for watch biomapper status (0x...)")]
-    // SetBiomapperAddress { address: String },
-    // #[command(description = "clear public evm address to unwatch biomapper status")]
-    // ClearBiomapperAddress,
-    #[command(description = "cancel the operation")]
-    Cancel,
-}
-
-#[derive(BotCommands, Clone, Debug)]
-#[command(
-    rename_rule = "lowercase",
-    description = "These commands are supported:"
-)]
-pub enum SettingsCommand {
-    #[command(description = "display this text")]
-    Help,
-    #[command(description = "Reset all features")]
-    ResetAllFeatures,
-    #[command(description = "cancel the operation")]
-    Cancel,
-}
-
-/// The state of set address.
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub enum State {
-    /// Dialogue start.
-    #[default]
-    Start,
-    /// Actions to activate bot features.
-    ActivateFeatures,
-    /// Notification settings.
-    Settings,
+    pub rw_bioauth_settings_map:
+        Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
 }
 
 #[derive(Debug)]
-pub struct SubscriptionUpdate {
-    pub chat_id: i64,
-    pub bioauth_public_key: [u8; 32],
+pub enum SubscriptionUpdate {
+    SubscribeToValidator {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+    },
+    UnsubscribeToValidator {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+    },
+    RemoveAllValidatorSubscriptions {
+        chat_id: i64,
+    },
+    UpdateMessageFrequencyInBlocks {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+        max_message_frequency_in_blocks: u32,
+    },
+    UpdateAlertBeforeExpirationInMins {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+        alert_before_expiration_in_mins: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -106,29 +68,59 @@ impl SubscriptionUpdateHandle {
 }
 
 #[derive(Debug)]
-pub struct NotificationHandle {
-    pub tx: tokio::sync::mpsc::Sender<channel_messages::Notification>,
+pub enum Notification {
+    BioauthLostNotification { chat_id: i64 },
+    BioauthSoonExpiredAlert { chat_id: i64 },
 }
 
-impl NotificationHandle {
-    pub async fn send_notification(
-        &self,
-        notification: channel_messages::Notification,
-    ) -> Result<(), anyhow::Error> {
-        self.tx
-            .send(notification)
-            .await
-            .map_err(|_| anyhow::format_err!("NotificationHandle error"))
+#[derive(Debug, Clone)]
+pub struct NotificationHandle {
+    tx: tokio::sync::mpsc::Sender<Notification>,
+}
+
+#[derive(Debug)]
+pub struct GetAllSubscriptions {
+    pub rw_bioauth_settings_map:
+        Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
+}
+
+impl GetAllSubscriptions {
+    async fn get_all_subscriptions(&self, chat_id: i64) -> Vec<String> {
+        let bioauth_settings_map = self.rw_bioauth_settings_map.read().await;
+        let subscriptions = bioauth_settings_map.get_all_subscriptions_by_id(chat_id);
+
+        tracing::info!(message = "get_all_subscriptions", ?subscriptions);
+
+        subscriptions
+            .iter()
+            .map(|bytes| AccountId32(*bytes).to_string())
+            .collect()
     }
 }
 
-///  dialogue.
-pub type StateDialogue = Dialogue<State, ErasedStorage<State>>;
+impl NotificationHandle {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn mock(tx: tokio::sync::mpsc::Sender<Notification>) -> Self {
+        Self { tx }
+    }
+
+    pub async fn send_notification(
+        &self,
+        notification: Notification,
+    ) -> Result<(), SendNotificationError> {
+        self.tx.send(notification).await.unwrap();
+
+        Ok(())
+    }
+}
 
 impl Telegram {
     /// Set bot commands.
     pub async fn set_commands(&self) -> Result<(), anyhow::Error> {
-        self.bot.set_my_commands(Command::bot_commands()).await?;
+        self.bot
+            .set_my_commands(handlers::Command::bot_commands())
+            .await?;
+
         Ok(())
     }
 
@@ -141,12 +133,21 @@ impl Telegram {
         SubscriptionUpdateHandle,
         NotificationHandle,
     ) {
-        let Telegram { bot, storage } = self;
+        let Telegram {
+            bot,
+            storage,
+            rw_bioauth_settings_map,
+        } = self;
+
+        let get_all_subscriptions = GetAllSubscriptions {
+            rw_bioauth_settings_map,
+        };
+        let get_all_subscriptions = Arc::new(get_all_subscriptions);
 
         let (subscription_update_tx, subscription_update_rx) =
             tokio::sync::mpsc::channel::<SubscriptionUpdate>(1000);
-        let (notification_handle_tx, mut notification_handle_rx) =
-            tokio::sync::mpsc::channel::<channel_messages::Notification>(1000);
+        let (notification_handle_tx, notification_handle_rx) =
+            tokio::sync::mpsc::channel::<Notification>(1000);
         let subscription_update_handle = SubscriptionUpdateHandle {
             rx: subscription_update_rx,
         };
@@ -157,36 +158,23 @@ impl Telegram {
             let bot = bot.clone();
 
             tokio::spawn(async move {
-                loop {
-                    let notification = notification_handle_rx.recv().await;
-                    if let Some(notification) = notification {
-                        let res = match notification {
-                            channel_messages::Notification::BioauthLostNotification { chat_id } => {
-                                bot.send_message(
-                                    ChatId(chat_id),
-                                    "You have lost bio-authentication to be an active validator.",
-                                )
-                                .await
-                            }
-                            channel_messages::Notification::BioauthSoonExpiredAlert { chat_id } => {
-                                bot.send_message(
-                                    ChatId(chat_id),
-                                    "You will lost bio-authentication soon",
-                                )
-                                .await
-                            }
-                        };
-
-                        if let Err(error) = res {
-                            tracing::error!(message = "notifier error", ?error);
-                        };
-                    };
+                if let Err(error) = bioauth_handlers::run_loop(bioauth_handlers::RunLoopParams {
+                    bot,
+                    notification_handle_rx,
+                })
+                .await
+                {
+                    tracing::error!(message = "bioauth_handlers::run_loop", ?error);
                 }
             });
         }
 
         let mut dispatcher = Dispatcher::builder(bot, handlers::schema())
-            .dependencies(dptree::deps![subscription_update_tx, storage])
+            .dependencies(dptree::deps![
+                get_all_subscriptions,
+                subscription_update_tx,
+                storage
+            ])
             .build();
 
         let shutdown_token = dispatcher.shutdown_token();

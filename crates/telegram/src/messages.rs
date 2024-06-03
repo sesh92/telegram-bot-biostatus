@@ -22,24 +22,18 @@ pub(crate) const MESSAGE_SET_VALIDATOR_ADDRESS: &str = indoc! {"
     Started watching the validator status.
 "};
 
-/// For the `/setbiomapperaddress` command.
-pub(crate) const MESSAGE_SET_BIOMAPPER_ADDRESS: &str = indoc! {"
-    At this moment this feature is unsupported.
-"};
-
-/// For the `/resetallfeatures` command.
-pub(crate) const MESSAGE_RESET_ALL_FEATURES: &str = indoc! {"
-    Your features were reset.
-"};
-
-/// For settings dialogue start.
-pub(crate) const MESSAGE_SETTINGS_DIALOGUE_START: &str = indoc! {"
-    Let's update the settings.
-"};
-
 /// For activate features dialogue start.
-pub(crate) const MESSAGE_ACTIVATE_FEATURES_DIALOGUE_START: &str = indoc! {"
-    Let's choose the features you want to activate.
+pub(crate) const MESSAGE_MANAGE_VALIDATOR_SUBSCRIPTION_DIALOGUE_START: &str = indoc! {"
+    Use the /subscribeToValidator command to subscribe to validator status
+    format: /<cmd> <(hm...): address>
+
+    Use the /updateMessageFrequencyInBlocks command to update subscription settings about max message frequency in blocks
+    format: /<cmd> <(hm...): address> <number: blocks>
+
+    Use the /updateAlertBeforeExpirationInMins command to update subscription settings about alert before expiration in mins
+    format: /<cmd> <(hm...): address> <number: blocks>
+
+    Use /help to display bot usage instructions.
 "};
 
 /// For a dialogue cancellation.
