@@ -9,6 +9,7 @@ block_subscription = { version = "0.1", path = "../block_subscription" }
 database = { version = "0.1", path = "../database" }
 telegram = { version = "0.1", path = "../telegram" }
 bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
+dev_subscriptions = { version = "0.1", path = "../dev_subscriptions" }
 
 anyhow = "1"
 hex = "0.4"

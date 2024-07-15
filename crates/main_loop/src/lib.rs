@@ -18,6 +18,7 @@ pub struct Params {
     pub subscription_update_handle: telegram::SubscriptionUpdateHandle,
     pub rw_bioauth_settings_map:
         Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
+    pub rw_dev_subscriptions_map: Arc<tokio::sync::RwLock<dev_subscriptions::DevSubscriptionMap>>,
 }
 
 pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
@@ -27,11 +28,17 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
         telegram_notification_handle,
         mut subscription_update_handle,
         rw_bioauth_settings_map,
+        rw_dev_subscriptions_map,
     } = params;
 
     let all_loaded_data = db.load_for_initialization().await?;
+    let all_team_subscriptions = db.load_all_team_subscriptions().await?;
 
-    tracing::info!(message = "Got all load", ?all_loaded_data);
+    tracing::info!(
+        message = "Got all load",
+        ?all_loaded_data,
+        ?all_team_subscriptions
+    );
     let mut bioauths = vec![];
 
     {
@@ -55,6 +62,18 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
         }
     }
 
+    {
+        let mut dev_subscriptions = rw_dev_subscriptions_map.write().await;
+        for data in all_team_subscriptions {
+            dev_subscriptions.update(
+                data.t_chat_id,
+                dev_subscriptions::DevSubscriptions {
+                    affected_validator: data.affected_validator,
+                },
+            );
+        }
+    }
+
     let bioauth_logic = BioauthLogic::init(bioauth_logic::InitParams { bioauths });
 
     let (notification_failures_tx, mut notification_failures_rx) =
@@ -73,10 +92,20 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
             let mut notification_failures_buffer: Vec<FailedNotification> =
                 Vec::with_capacity(limit);
             loop {
+                let new_block_res = block_subscription.next_block().await;
+
+                let new_block_info = match new_block_res {
+                    Ok(val) => val,
+                    Err(error) => {
+                        tracing::error!(message = "new_block_error", ?error);
+                        continue;
+                    }
+                };
+
                 let block_subscription::BlockInfo {
                     block_number,
                     active_authentications_map,
-                } = block_subscription.next_block().await.unwrap();
+                } = new_block_info;
 
                 let notifications = {
                     let mut logic = bioauth_logic.lock().await;
@@ -107,12 +136,20 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                 let telegram_notifications: Vec<telegram::Notification> = notifications
                     .iter()
                     .map(|notification| match notification {
-                        bioauth_logic::Notification::BioauthLostNotification { chat_id } => {
-                            telegram::Notification::BioauthLostNotification { chat_id: *chat_id }
-                        }
-                        bioauth_logic::Notification::BioauthSoonExpiredAlert { chat_id } => {
-                            telegram::Notification::BioauthSoonExpiredAlert { chat_id: *chat_id }
-                        }
+                        bioauth_logic::Notification::BioauthLostNotification {
+                            chat_id,
+                            bioauth_public_key,
+                        } => telegram::Notification::BioauthLostNotification {
+                            chat_id: *chat_id,
+                            bioauth_public_key: *bioauth_public_key,
+                        },
+                        bioauth_logic::Notification::BioauthSoonExpiredAlert {
+                            chat_id,
+                            bioauth_public_key,
+                        } => telegram::Notification::BioauthSoonExpiredAlert {
+                            chat_id: *chat_id,
+                            bioauth_public_key: *bioauth_public_key,
+                        },
                     })
                     .collect();
 
@@ -160,6 +197,14 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                                 },
                             );
                         };
+                        {
+                            let mut bioauth_settings = rw_bioauth_settings_map.write().await;
+
+                            bioauth_settings.update(
+                                (t_chat_id, bioauth_public_key),
+                                BioauthSettings::default(),
+                            );
+                        }
 
                         tracing::info!(
                             message = "SubscribeToValidator",
@@ -185,6 +230,11 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
                                 },
                             );
                         }
+
+                        {
+                            let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
+                            bioauth_settings_map.remove(&(t_chat_id, bioauth_public_key));
+                        }
                         tracing::info!(
                             message = "UnsubscribeToValidator",
                             ?t_chat_id,
@@ -203,32 +253,82 @@ pub async fn run(params: Params) -> Result<JoinSet<()>, anyhow::Error> {
 
                             bioauth_logic.remove_all_subscription(t_chat_id);
                         }
+
+                        {
+                            let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
+                            bioauth_settings_map.remove_all_by_id(t_chat_id)
+                        }
                         tracing::info!(message = "RemoveAllValidatorSubscriptions", ?t_chat_id);
 
                         db.bioauth_unsubscribe_all(t_chat_id).await.unwrap();
                     }
-                    telegram::SubscriptionUpdate::UpdateAlertBeforeExpirationInMins {
-                        chat_id,
-                        bioauth_public_key,
-                        alert_before_expiration_in_mins,
-                    } => {
-                        let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
-                        bioauth_settings_map.update_alert_before_expiration_in_mins(
-                            (chat_id, bioauth_public_key),
-                            alert_before_expiration_in_mins,
-                        );
-                    }
-                    telegram::SubscriptionUpdate::UpdateMessageFrequencyInBlocks {
-                        chat_id,
-                        bioauth_public_key,
-                        max_message_frequency_in_blocks,
-                    } => {
-                        let mut bioauth_settings_map = rw_bioauth_settings_map.write().await;
+                    telegram::SubscriptionUpdate::AffectedValidatorDisable { chat_id } => {
+                        let affected_validator = false;
+                        {
+                            let mut dev_subscriptions =
+                                rw_dev_subscriptions_map.write().await;
 
-                        bioauth_settings_map.update_max_message_frequency_in_blocks(
-                            (chat_id, bioauth_public_key),
-                            max_message_frequency_in_blocks,
-                        );
+                            dev_subscriptions.update(
+                                chat_id,
+                                dev_subscriptions::DevSubscriptions {
+                                    affected_validator,
+                                },
+                            );
+                        }
+
+                        db.update_affected_validator_subscription(chat_id, affected_validator)
+                            .await
+                            .unwrap();
+                    }
+                    telegram::SubscriptionUpdate::AffectedValidatorEnable { chat_id } => {
+                        let affected_validator = true;
+                        {
+                            let mut dev_subscriptions =
+                                rw_dev_subscriptions_map.write().await;
+
+                            dev_subscriptions.update(
+                                chat_id,
+                                dev_subscriptions::DevSubscriptions {
+                                    affected_validator
+                                },
+                            )
+                        }
+
+                        db.update_affected_validator_subscription(chat_id, affected_validator)
+                            .await
+                            .unwrap();
+                    }
+                    telegram::SubscriptionUpdate::UpdateSubscriptionAlertBeforeExpirationInMins { chat_id, bioauth_public_key, in_mins } => {
+                        {
+                            let mut bioauth_settings_map =
+                                rw_bioauth_settings_map.write().await;
+                            let key = (chat_id, bioauth_public_key);
+                            let mut settings = bioauth_settings_map.get(&key).clone();
+                            settings.alert_before_expiration_in_mins = in_mins;
+                            bioauth_settings_map.update(
+                                key,
+                                settings
+                            )
+                        }
+
+                        db.update_bioauth_alert_before_expiration_in_mins(chat_id, &bioauth_public_key, in_mins as i64)
+                            .await.unwrap();
+                    }
+                    telegram::SubscriptionUpdate::UpdateSubscriptionMaxMessageFrequencyInBlocks { chat_id, bioauth_public_key, in_blocks } => {
+                        {
+                            let mut bioauth_settings_map =
+                                rw_bioauth_settings_map.write().await;
+                            let key = (chat_id, bioauth_public_key);
+                            let mut settings = bioauth_settings_map.get(&key).clone();
+                            settings.max_message_frequency_in_blocks = in_blocks;
+                            bioauth_settings_map.update(
+                                key,
+                                settings
+                            )
+                        }
+
+                        db.update_bioauth_max_message_frequency_in_blocks(chat_id, &bioauth_public_key, in_blocks as i32)
+                            .await.unwrap();
                     }
                 }
             }
