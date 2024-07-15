@@ -68,6 +68,23 @@ where
         self.0.insert(key, settings);
     }
 
+    pub fn remove(&mut self, key: &(i64, Key)) {
+        self.0.remove(key);
+    }
+
+    pub fn remove_all_by_id(&mut self, by_id: i64) {
+        let keys_to_remove: Vec<(i64, Key)> = self
+            .0
+            .keys()
+            .filter(|(id, _)| id == &by_id)
+            .cloned()
+            .collect();
+
+        for key in keys_to_remove {
+            self.0.remove(&key);
+        }
+    }
+
     pub fn update_alert_before_expiration_in_mins(
         &mut self,
         key: (i64, Key),
