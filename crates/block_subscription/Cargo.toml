@@ -6,5 +6,5 @@ edition = "2021"
 [dependencies]
 
 anyhow = "1"
-subxt = "0.36"
+subxt = "0.37"
 tracing = "0.1"
