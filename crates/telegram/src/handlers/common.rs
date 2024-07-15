@@ -11,6 +11,12 @@ use super::{
 
 const START_MESSAGE: &str = {
     "
+
+!!! PAY ATTENTION !!!
+!!! THIS IS EARLY ACCESS VERSION !!!
+!!! SOME FUNCTIONALITY CAN BE UNSTABLE !!!
+!!! SOMETIMES BOT CAN BE FULLY RESET, BUT I WILL NOTIFY YOU ABOUT THAT IF YOU ACTIVATE DEVELOPER NOTIFICATION !!!
+
 Welcome to the biostatus bot!
 
 By using this bot, you will receive timely notifications regarding the impending loss of your validator status according to your settings.
