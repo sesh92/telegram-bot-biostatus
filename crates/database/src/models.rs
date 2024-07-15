@@ -2,7 +2,7 @@
 
 #![allow(missing_docs, clippy::missing_docs_in_private_items)]
 
-use crate::schema::bioauth_subscriptions;
+use crate::schema::{bioauth_subscriptions, dev_subscriptions};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql},
@@ -56,4 +56,14 @@ pub struct LoadForInitialization {
     /// Notify a few minutes before expiration.
     #[diesel(deserialize_as = i64)]
     pub alert_before_expiration_in_mins: u64,
+}
+
+/// Model for load init validator with settings values.
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = dev_subscriptions)]
+pub struct AllDevSubscriptions {
+    /// The telegram user's chat id.
+    pub t_chat_id: i64,
+    ///
+    pub affected_validator: bool,
 }
