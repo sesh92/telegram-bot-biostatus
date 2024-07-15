@@ -26,6 +26,13 @@ pub struct BlockInfo {
     pub block_number: u32,
 }
 
+#[derive(Debug)]
+pub enum NewBlockError {
+    BlockNotReceived,
+    SubscribtionBlocksError(subxt::Error),
+    ActiveAuthenticationNotReceived(subxt::Error),
+}
+
 type ValidatorPublicKey = [u8; 32];
 
 impl BlockSubscription {
@@ -39,20 +46,25 @@ impl BlockSubscription {
         Ok(Self { api, subscription })
     }
 
-    pub async fn next_block(&mut self) -> Result<BlockInfo, anyhow::Error> {
+    pub async fn next_block(&mut self) -> Result<BlockInfo, NewBlockError> {
         let res_opt = self.subscription.next().await;
         let mut active_authentications_map = HashMap::new();
+
         let res = match res_opt {
-            None => return Err(anyhow::format_err!("Block is none")),
+            None => return Err(NewBlockError::BlockNotReceived),
             Some(res) => res,
         };
 
-        let block = res?;
+        let block = res.map_err(NewBlockError::SubscribtionBlocksError)?;
         let block_number = block.number();
 
         let query = &gen::humanode::storage().bioauth().active_authentications();
 
-        let active_authentications = block.storage().fetch(query).await?;
+        let active_authentications = block
+            .storage()
+            .fetch(query)
+            .await
+            .map_err(NewBlockError::ActiveAuthenticationNotReceived)?;
 
         if let Some(value) = active_authentications {
             let active_authentications = value.0;
