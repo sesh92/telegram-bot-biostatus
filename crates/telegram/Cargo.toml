@@ -6,13 +6,15 @@ edition = "2021"
 [dependencies]
 bioauth_logic = { version = "0.1", path = "../bioauth_logic" }
 bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
+dev_subscriptions = { version = "0.1", path = "../dev_subscriptions" }
 
 anyhow = "1"
 derivative = "2"
 hex = "0.4"
 indoc = "2"
 serde = "1"
-subxt = "0.36"
+subxt = "0.37"
+sp-core = "33"
 teloxide = { version = "0.12", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

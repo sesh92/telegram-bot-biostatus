@@ -4,9 +4,11 @@ use serde::{Deserialize, Serialize};
 use teloxide::{
     dispatching::{dialogue::ErasedStorage, UpdateHandler},
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId},
     utils::command::BotCommands,
 };
+
+use crate::handlers::subscription_update;
 
 use super::State as GlobalState;
 use super::{
@@ -23,7 +25,7 @@ use super::{Command as RootCommand, GlobalDialogue};
 pub enum Command {
     #[command(description = "display this text")]
     Help,
-    #[command(description = "Subscribe to public substrate address to watch validator status")]
+    #[command(description = "add new subscription")]
     Subscribe,
     #[command(description = "cancel the operation")]
     Cancel,
@@ -32,88 +34,148 @@ pub enum Command {
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub enum State {
     #[default]
-    DisplayAllSubscriptions,
+    Idle,
+    DisplayAllSubscriptions {
+        message_data: (ChatId, MessageId),
+    },
     Subscribe,
+    UpdateSubscription {
+        address: String,
+    },
+    UpdateAlertBeforeExpirationInMins {
+        address: String,
+    },
+    UpdateMaxMessageFrequencyInBlocks {
+        address: String,
+    },
+    Unsubscribe {
+        address: String,
+    },
 }
 
-fn make_subscriptions_markup(subscriptions: Vec<String>) -> InlineKeyboardMarkup {
+pub async fn transition_to_display_all_subscriptions(
+    chat_id: ChatId,
+    bot: &Bot,
+    message: Message,
+    dialogue: GlobalDialogue,
+) -> HandlerResult {
+    dialogue
+        .update(GlobalState::ManageValidatorSubscriptions(
+            State::DisplayAllSubscriptions {
+                message_data: (message.chat.id, message.id),
+            },
+        ))
+        .await?;
+    set_local_commands(chat_id, bot, Command::bot_commands()).await
+}
+
+async fn make_subscriptions_markup(
+    chat_id: i64,
+    get_all_subscriptions: Arc<crate::BioauthSettings>,
+) -> (InlineKeyboardMarkup, usize) {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
 
-    for chunk in subscriptions.chunks(2) {
-        let row = chunk
-            .iter()
-            .map(|subscription| {
-                InlineKeyboardButton::callback(subscription.to_owned(), subscription.to_owned())
-            })
-            .collect();
-
-        keyboard.push(row);
+    let subscriptions = get_all_subscriptions.get_all_subscriptions(chat_id).await;
+    let subscriptions_len = subscriptions.clone().len();
+    for subscription in subscriptions {
+        keyboard.push(vec![InlineKeyboardButton::callback(
+            subscription.to_owned(),
+            subscription.to_owned(),
+        )]);
     }
 
-    InlineKeyboardMarkup::new(keyboard)
+    (InlineKeyboardMarkup::new(keyboard), subscriptions_len)
 }
+
+const START_MESSAGE: &str = {
+    "
+You don't have any subscriptions yet,
+
+use /help command to display bot usage instructions.
+"
+};
 
 async fn start(
     bot: Bot,
     msg: Message,
     dialogue: GlobalDialogue,
-    get_all_subscriptions: Arc<crate::GetAllSubscriptions>,
+    get_all_subscriptions: Arc<crate::BioauthSettings>,
 ) -> HandlerResult {
-    let subscriptions_vec = get_all_subscriptions
-        .get_all_subscriptions(msg.chat.id.0)
-        .await;
-    tracing::info!(
-        message = "manage_validator_subscriptions start subscriptions_vec",
-        ?subscriptions_vec
-    );
-    let keyboard = make_subscriptions_markup(subscriptions_vec);
+    let (keyboard, len) = make_subscriptions_markup(msg.chat.id.0, get_all_subscriptions).await;
+    let chat_id = msg.chat.id;
 
-    bot.send_message(msg.chat.id, "Subscriptions:")
-        .reply_markup(keyboard)
-        .await?;
+    let message = if len == 0 {
+        bot.send_message(chat_id, START_MESSAGE)
+            .reply_markup(keyboard)
+            .await?
+    } else {
+        bot.send_message(chat_id, "Choose a subscription to manage it, or use /help command to display bot usage instructions.")
+            .reply_markup(keyboard)
+            .await?
+    };
 
-    dialogue
-        .update(GlobalState::ManageValidatorSubscriptions(
-            State::DisplayAllSubscriptions,
-        ))
-        .await?;
-
-    set_local_commands(&msg, &bot, Command::bot_commands()).await?;
-
-    Ok(())
+    transition_to_display_all_subscriptions(msg.chat.id, &bot, message, dialogue).await
 }
 
-async fn manage_validator_subscriptions_help(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_message(msg.chat.id, "TODO: ManageValidatorSubscriptions help")
+async fn help(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
     Ok(())
 }
 
-async fn manage_validator_subscriptions_cancel(
+const CANCEL_MESSAGE: &str = {
+    "
+Your validator subscriptions remain unchanged.
+
+use /help command to display bot usage instructions.
+"
+};
+
+async fn cancel(
     bot: Bot,
     msg: Message,
+    message_data: (ChatId, MessageId),
     dialogue: GlobalDialogue,
 ) -> HandlerResult {
-    bot.send_message(msg.chat.id, "TODO: ManageValidatorSubscriptions cancel")
-        .await?;
+    let chat_id = msg.chat.id;
+    bot.send_message(chat_id, CANCEL_MESSAGE).await?;
 
-    dialogue.update(GlobalState::Start).await?;
+    bot.edit_message_text(
+        message_data.0,
+        message_data.1,
+        "You have canceled the action.",
+    )
+    .await?;
 
-    set_local_commands(&msg, &bot, super::Command::bot_commands()).await?;
-    Ok(())
+    super::transition_to_start(chat_id, &bot, dialogue).await
 }
 
-async fn callback_handler(bot: Bot, callback_query: CallbackQuery) -> HandlerResult {
-    if let Some(version) = callback_query.data {
-        let text = format!("You chose: {version}");
+async fn callback_handler(
+    bot: Bot,
+    dialogue: GlobalDialogue,
+    callback_query: CallbackQuery,
+) -> HandlerResult {
+    bot.answer_callback_query(callback_query.id).await?;
 
-        bot.answer_callback_query(callback_query.id).await?;
+    if let Some(address) = callback_query.data {
+        let text = format!("Subscription {address} selected");
 
-        // Edit text of the message to which the buttons were attached
         if let Some(Message { id, chat, .. }) = callback_query.message {
             bot.edit_message_text(chat.id, id, text).await?;
-        } else if let Some(id) = callback_query.inline_message_id {
-            bot.edit_message_text_inline(id, text).await?;
+
+            subscription_update::transition_to_update_subscription(
+                chat.id,
+                &bot,
+                address.clone(),
+                dialogue,
+            )
+            .await?;
+
+            bot.send_message(
+                chat.id,
+                "Use /help command to display bot usage instructions.",
+            )
+            .await?;
         }
     }
 
@@ -121,25 +183,36 @@ async fn callback_handler(bot: Bot, callback_query: CallbackQuery) -> HandlerRes
 }
 
 pub fn schema() -> UpdateHandler<HanderError> {
-    let callback_query = Update::filter_callback_query().endpoint(callback_handler);
     let root_command_handler = teloxide::filter_command::<RootCommand, _>()
-        .branch(dptree::case![RootCommand::ManageValidatorSubscriptions].endpoint(start))
-        .branch(callback_query);
+        .branch(dptree::case![RootCommand::ManageValidatorSubscriptions].endpoint(start));
 
     let command_handler = teloxide::filter_command::<Command, _>()
-        .branch(dptree::case![Command::Help].endpoint(manage_validator_subscriptions_help))
-        .branch(
-            dptree::case![Command::Subscribe]
-                .endpoint(subscribe::manage_validator_subscriptions_subscribe),
-        )
-        .branch(dptree::case![Command::Cancel].endpoint(manage_validator_subscriptions_cancel));
+        .branch(dptree::case![Command::Help].endpoint(help))
+        .branch(dptree::case![Command::Subscribe].endpoint(subscribe::command))
+        .branch(dptree::case![Command::Cancel].endpoint(cancel));
 
-    Update::filter_message()
-        .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-        .branch(dptree::case![GlobalState::Start].branch(root_command_handler))
+    dptree::entry()
         .branch(
-            dptree::case![GlobalState::ManageValidatorSubscriptions(x)]
-                .branch(dptree::case![State::DisplayAllSubscriptions].branch(command_handler))
-                .branch(subscribe::schema()),
+            Update::filter_message()
+                .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
+                .branch(dptree::case![GlobalState::Start].branch(root_command_handler))
+                .branch(
+                    dptree::case![GlobalState::ManageValidatorSubscriptions(x)].branch(
+                        dptree::case![State::DisplayAllSubscriptions { message_data }]
+                            .branch(command_handler),
+                    ),
+                ),
+        )
+        .branch(subscribe::schema())
+        .branch(subscription_update::schema())
+        .branch(
+            Update::filter_callback_query()
+                .enter_dialogue::<CallbackQuery, ErasedStorage<GlobalState>, GlobalState>()
+                .branch(
+                    dptree::filter(|state| {
+                        matches!(state, GlobalState::ManageValidatorSubscriptions(_))
+                    })
+                    .endpoint(callback_handler),
+                ),
         )
 }

@@ -5,20 +5,23 @@ use teloxide::{
 };
 
 use super::{
-    utils::{set_local_commands, HanderError, HandlerResult},
-    Command, State,
+    utils::{HanderError, HandlerResult},
+    Command, GlobalDialogue, State as GlobalState,
 };
 
-/// Dialogue start.
 const START_MESSAGE: &str = {
     "
-    Welcome to the biostatus bot!
+Welcome to the biostatus bot!
 
-    Here you can subscribe to bio authentications to get notifications then it expires and also to get alert before expiration.
+By using this bot, you will receive timely notifications regarding the impending loss of your validator status according to your settings.
 
-    Use the /managevalidatorsubscriptions command to manage your subscriptions
+If your validator status is lost, or you are no longer a validator, you will be regularly notified based on your settings.
 
-    Use /help to display bot usage instructions.
+All bot messages are customizable to your liking, ensuring that you won't need to mute the bot and can stay informed about your status, allowing for immediate action.
+
+It's also recommended to enable developer notifications to stay updated on any network changes that might affect your validator status, you can always unsubscribe from developer notifications if you find them irrelevant.
+
+Use /help command to display bot usage instructions.
 "
 };
 
@@ -27,39 +30,33 @@ async fn start(bot: Bot, message: Message) -> HandlerResult {
     Ok(())
 }
 
-async fn reset_state(bot: Bot, message: Message) -> HandlerResult {
-    bot.send_message(message.chat.id, "Reseting state").await?;
-
-    set_local_commands(&message, &bot, Command::bot_commands()).await
-}
-
-async fn default_callback_handler(bot: Bot, callback: CallbackQuery) -> HandlerResult {
-    bot.answer_callback_query(callback.id)
-        .text("Button won't work at this state. Force exit from this state by using /exit command")
-        .show_alert(true)
+async fn help(bot: Bot, message: Message) -> HandlerResult {
+    bot.send_message(message.chat.id, Command::descriptions().to_string())
         .await?;
     Ok(())
 }
 
+async fn reset_state(bot: Bot, dialogue: GlobalDialogue, message: Message) -> HandlerResult {
+    let chat_id = message.chat.id;
+    bot.send_message(chat_id, "Reseting state").await?;
+
+    super::transition_to_start(chat_id, &bot, dialogue).await
+}
+
 pub fn schema() -> UpdateHandler<HanderError> {
-    dptree::entry()
-        .branch(
-            Update::filter_message()
-                .enter_dialogue::<Message, ErasedStorage<State>, State>()
-                .branch(
-                    dptree::case![State::Start]
-                        .filter_command::<Command>()
-                        .branch(dptree::case![Command::Start].endpoint(start))
-                        .branch(dptree::case![Command::ResetState].endpoint(reset_state))
-                        .branch(dptree::case![Command::Help].endpoint(start)),
-                ),
-        )
-        .branch(
-            Update::filter_callback_query()
-                .enter_dialogue::<CallbackQuery, ErasedStorage<State>, State>()
-                .branch(
-                    dptree::filter(|state| !matches!(state, State::Start))
-                        .endpoint(default_callback_handler),
-                ),
-        )
+    dptree::entry().branch(
+        Update::filter_message()
+            .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
+            .branch(
+                dptree::case![GlobalState::ManageValidatorSubscriptions(x)]
+                    .filter_command::<Command>()
+                    .branch(dptree::case![Command::ResetState].endpoint(reset_state)),
+            )
+            .branch(
+                dptree::case![GlobalState::Start]
+                    .filter_command::<Command>()
+                    .branch(dptree::case![Command::Start].endpoint(start))
+                    .branch(dptree::case![Command::Help].endpoint(help)),
+            ),
+    )
 }

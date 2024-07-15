@@ -4,14 +4,13 @@
 
 pub mod bioauth_handlers;
 mod handlers;
-mod messages;
 
 use bioauth_handlers::SendNotificationError;
 use derivative::Derivative;
 use handlers::State as GlobalState;
+use sp_core::crypto::{Ss58AddressFormatRegistry, Ss58Codec};
 use std::future::Future;
 use std::sync::Arc;
-use subxt::utils::AccountId32;
 use teloxide::dispatching::dialogue::ErasedStorage;
 use teloxide::utils::command::BotCommands;
 use teloxide::{dispatching::ShutdownToken, prelude::*};
@@ -29,6 +28,8 @@ pub struct Telegram {
     pub storage: MyStorage,
     pub rw_bioauth_settings_map:
         Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
+    pub rw_dev_subscriptions_map: Arc<tokio::sync::RwLock<dev_subscriptions::DevSubscriptionMap>>,
+    pub admin_chat_ids: Vec<i64>,
 }
 
 #[derive(Debug)]
@@ -41,18 +42,24 @@ pub enum SubscriptionUpdate {
         chat_id: i64,
         bioauth_public_key: [u8; 32],
     },
+    UpdateSubscriptionAlertBeforeExpirationInMins {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+        in_mins: u64,
+    },
+    UpdateSubscriptionMaxMessageFrequencyInBlocks {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+        in_blocks: u32,
+    },
     RemoveAllValidatorSubscriptions {
         chat_id: i64,
     },
-    UpdateMessageFrequencyInBlocks {
+    AffectedValidatorEnable {
         chat_id: i64,
-        bioauth_public_key: [u8; 32],
-        max_message_frequency_in_blocks: u32,
     },
-    UpdateAlertBeforeExpirationInMins {
+    AffectedValidatorDisable {
         chat_id: i64,
-        bioauth_public_key: [u8; 32],
-        alert_before_expiration_in_mins: u64,
     },
 }
 
@@ -69,8 +76,14 @@ impl SubscriptionUpdateHandle {
 
 #[derive(Debug)]
 pub enum Notification {
-    BioauthLostNotification { chat_id: i64 },
-    BioauthSoonExpiredAlert { chat_id: i64 },
+    BioauthLostNotification {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+    },
+    BioauthSoonExpiredAlert {
+        chat_id: i64,
+        bioauth_public_key: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -79,21 +92,31 @@ pub struct NotificationHandle {
 }
 
 #[derive(Debug)]
-pub struct GetAllSubscriptions {
+pub struct BioauthSettings {
     pub rw_bioauth_settings_map:
         Arc<tokio::sync::RwLock<bioauth_settings::BioauthSettingsMap<[u8; 32]>>>,
 }
 
-impl GetAllSubscriptions {
-    async fn get_all_subscriptions(&self, chat_id: i64) -> Vec<String> {
+impl BioauthSettings {
+    async fn get(&self, key: &(i64, [u8; 32])) -> bioauth_settings::BioauthSettings {
         let bioauth_settings_map = self.rw_bioauth_settings_map.read().await;
-        let subscriptions = bioauth_settings_map.get_all_subscriptions_by_id(chat_id);
+        bioauth_settings_map.get(key).to_owned()
+    }
+
+    async fn get_all_subscriptions(&self, chat_id: i64) -> Vec<String> {
+        let subscriptions = {
+            let bioauth_settings_map = self.rw_bioauth_settings_map.read().await;
+            bioauth_settings_map.get_all_subscriptions_by_id(chat_id)
+        };
 
         tracing::info!(message = "get_all_subscriptions", ?subscriptions);
 
         subscriptions
             .iter()
-            .map(|bytes| AccountId32(*bytes).to_string())
+            .map(|bytes| {
+                sp_core::crypto::AccountId32::new(*bytes)
+                    .to_ss58check_with_version(Ss58AddressFormatRegistry::HumanodeAccount.into())
+            })
             .collect()
     }
 }
@@ -137,9 +160,11 @@ impl Telegram {
             bot,
             storage,
             rw_bioauth_settings_map,
+            rw_dev_subscriptions_map,
+            admin_chat_ids,
         } = self;
 
-        let get_all_subscriptions = GetAllSubscriptions {
+        let get_all_subscriptions = BioauthSettings {
             rw_bioauth_settings_map,
         };
         let get_all_subscriptions = Arc::new(get_all_subscriptions);
@@ -173,6 +198,8 @@ impl Telegram {
             .dependencies(dptree::deps![
                 get_all_subscriptions,
                 subscription_update_tx,
+                rw_dev_subscriptions_map,
+                admin_chat_ids,
                 storage
             ])
             .build();

@@ -4,8 +4,10 @@ use subxt::utils::AccountId32;
 use teloxide::dispatching::dialogue::ErasedStorage;
 use teloxide::dispatching::UpdateHandler;
 use teloxide::prelude::*;
+use teloxide::types::MessageId;
 use teloxide::utils::command::BotCommands;
 
+use super::subscription_update::transition_to_update_subscription;
 use super::State as GlobalState;
 use crate::SubscriptionUpdate;
 
@@ -25,27 +27,53 @@ pub enum Command {
     Cancel,
 }
 
-pub async fn manage_validator_subscriptions_subscribe(
-    bot: Bot,
-    msg: Message,
+pub async fn transition_to_subscribe(
+    chat_id: ChatId,
+    bot: &Bot,
     dialogue: GlobalDialogue,
 ) -> HandlerResult {
-    bot.send_message(
-        msg.chat.id,
-        "TODO: ManageValidatorSubscriptions subscribe, type your address or use command",
-    )
-    .await?;
-
     dialogue
         .update(GlobalState::ManageValidatorSubscriptions(
             manage_validator_subscriptions::State::Subscribe,
         ))
         .await?;
-
-    Ok(())
+    set_local_commands(chat_id, bot, Command::bot_commands()).await
 }
 
-/// Handle the get tokens address reception.
+const COMMAND_MESSAGE: &str = {
+    "
+Enter the validator address (must start with 'hm..'), or use /help command to display bot usage instructions.
+"
+};
+
+pub async fn command(
+    bot: Bot,
+    msg: Message,
+    message_data: (ChatId, MessageId),
+    dialogue: GlobalDialogue,
+) -> HandlerResult {
+    bot.send_message(msg.chat.id, COMMAND_MESSAGE).await?;
+
+    bot.edit_message_text(
+        message_data.0,
+        message_data.1,
+        "Subcription action is activated",
+    )
+    .await?;
+
+    transition_to_subscribe(msg.chat.id, &bot, dialogue).await
+}
+
+const SUBSCRIBED_MESSAGE: &str = {
+    "
+Validator address successfully added.
+You will now receive notifications according to your settings.
+You can manage the settings for this subscription.
+
+Use /help command to display bot usage instructions
+"
+};
+
 pub async fn receive_address(
     msg: Message,
     bot: Bot,
@@ -54,27 +82,23 @@ pub async fn receive_address(
 ) -> HandlerResult {
     let chat_id = msg.chat.id;
     let text = msg.text();
-
     let address = {
         let text = match text {
             Some(text) => text,
             None => {
-                bot.send_message(msg.chat.id, "type address").await?;
+                bot.send_message(msg.chat.id, "Enter address").await?;
                 return Ok(());
             }
         };
         match AccountId32::from_str(text) {
             Ok(val) => val,
             Err(error) => {
-                bot.send_message(msg.chat.id, format!("invalid address {}", error))
+                bot.send_message(msg.chat.id, format!("Invalid address {}", error))
                     .await?;
                 return Ok(());
             }
         }
     };
-
-    bot.send_message(msg.chat.id, "subscribing to the address")
-        .await?;
 
     tx.send(SubscriptionUpdate::SubscribeToValidator {
         chat_id: chat_id.0,
@@ -82,38 +106,40 @@ pub async fn receive_address(
     })
     .await?;
 
-    dialogue.exit().await?;
+    if let Some(address) = text {
+        bot.send_message(msg.chat.id, SUBSCRIBED_MESSAGE).await?;
+        transition_to_update_subscription(chat_id, &bot, address.to_owned(), dialogue).await?;
+    }
 
-    set_local_commands(&msg, &bot, super::Command::bot_commands()).await
+    Ok(())
 }
 
-async fn subscribe_help(bot: Bot, msg: Message) -> HandlerResult {
+async fn help(bot: Bot, msg: Message) -> HandlerResult {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
     Ok(())
 }
 
-pub async fn subscribe_cancel(bot: Bot, msg: Message, dialogue: GlobalDialogue) -> HandlerResult {
-    bot.send_message(msg.chat.id, "subscribe cancel").await?;
+const CANCEL_MESSAGE: &str = {
+    "
+You have canceled the action.
 
-    dialogue
-        .update(GlobalState::ManageValidatorSubscriptions(
-            manage_validator_subscriptions::State::DisplayAllSubscriptions,
-        ))
-        .await?;
+use /help command to display bot usage instructions.
+"
+};
 
-    set_local_commands(
-        &msg,
-        &bot,
-        manage_validator_subscriptions::Command::bot_commands(),
-    )
-    .await
+pub async fn cancel(bot: Bot, msg: Message, dialogue: GlobalDialogue) -> HandlerResult {
+    bot.send_message(msg.chat.id, CANCEL_MESSAGE).await?;
+
+    dialogue.exit().await?;
+
+    set_local_commands(msg.chat.id, &bot, super::Command::bot_commands()).await
 }
 
 pub fn schema() -> UpdateHandler<HanderError> {
     let commands = teloxide::filter_command::<Command, _>()
-        .branch(dptree::case![Command::Help].endpoint(subscribe_help))
-        .branch(dptree::case![Command::Cancel].endpoint(subscribe_cancel));
+        .branch(dptree::case![Command::Help].endpoint(help))
+        .branch(dptree::case![Command::Cancel].endpoint(cancel));
 
     Update::filter_message()
         .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
