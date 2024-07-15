@@ -20,9 +20,15 @@ pub enum FailedNotification {
 }
 
 #[derive(Debug)]
-pub enum Notification {
-    BioauthLostNotification { chat_id: i64 },
-    BioauthSoonExpiredAlert { chat_id: i64 },
+pub enum Notification<BioauthPublicKey> {
+    BioauthLostNotification {
+        chat_id: i64,
+        bioauth_public_key: BioauthPublicKey,
+    },
+    BioauthSoonExpiredAlert {
+        chat_id: i64,
+        bioauth_public_key: BioauthPublicKey,
+    },
 }
 
 #[derive(Debug)]
@@ -110,7 +116,10 @@ where
         }
     }
 
-    pub fn new_block(&mut self, params: NewBlockParams<BioauthPublicKey>) -> Vec<Notification> {
+    pub fn new_block(
+        &mut self,
+        params: NewBlockParams<BioauthPublicKey>,
+    ) -> Vec<Notification<BioauthPublicKey>> {
         let NewBlockParams {
             block_number,
             active_authentications_map,
@@ -124,17 +133,18 @@ where
 
             for (chat_id, state) in chats.iter_mut() {
                 let settings = bioauth_settings_map.get(&(*chat_id, *bioauth_public_key));
-
                 match expires_at_opt {
                     None => {
-                        if block_number > state.next_block_number_to_notify
+                        if block_number < state.next_block_number_to_notify
                             && state.next_block_number_to_notify != 0
                         {
                             continue;
                         }
 
-                        notifications
-                            .push(Notification::BioauthLostNotification { chat_id: *chat_id });
+                        notifications.push(Notification::BioauthLostNotification {
+                            chat_id: *chat_id,
+                            bioauth_public_key: *bioauth_public_key,
+                        });
 
                         state.last_block_number_notified = block_number;
                         state.next_block_number_to_notify =
@@ -165,8 +175,10 @@ where
                         };
 
                         if alert_at <= timestamp {
-                            notifications
-                                .push(Notification::BioauthSoonExpiredAlert { chat_id: *chat_id });
+                            notifications.push(Notification::BioauthSoonExpiredAlert {
+                                chat_id: *chat_id,
+                                bioauth_public_key: *bioauth_public_key,
+                            });
 
                             state.alerted_at = Some(timestamp);
                         }

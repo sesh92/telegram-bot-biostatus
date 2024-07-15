@@ -45,8 +45,12 @@ fn process_block() {
 
     for notification in notifications {
         match notification {
-            Notification::BioauthLostNotification { chat_id } => {
+            Notification::BioauthLostNotification {
+                chat_id,
+                bioauth_public_key,
+            } => {
                 assert_eq!(chat_id, t_chat_id_0);
+                assert_eq!(bioauth_public_key, bioauth_public_key_0);
             }
             _ => panic!(),
         }
@@ -74,8 +78,12 @@ fn process_block() {
 
     for notification in notifications {
         match notification {
-            Notification::BioauthSoonExpiredAlert { chat_id } => {
+            Notification::BioauthSoonExpiredAlert {
+                chat_id,
+                bioauth_public_key,
+            } => {
                 assert_eq!(chat_id, t_chat_id_0);
+                assert_eq!(bioauth_public_key, bioauth_public_key_0);
             }
             _ => panic!(),
         }
