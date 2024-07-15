@@ -20,6 +20,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let redis_url: String = envfury::must("REDIS_URL")?;
     let telegram_token: String = envfury::must("TELOXIDE_TOKEN")?;
     let database_url: String = envfury::must("DATABASE_URL")?;
+    let admin_chat_ids_str: String = envfury::must("ADMIN_CHAT_IDS")?;
+    let admin_chat_ids = admin_chat_ids_str
+        .split(',')
+        .map(|id| id.parse::<i64>().unwrap())
+        .collect();
 
     let reqwest = teloxide::net::default_reqwest_settings().build()?;
     let storage = RedisStorage::open(redis_url, Bincode)
@@ -44,11 +49,16 @@ async fn main() -> Result<(), anyhow::Error> {
     let block_subscription = block_subscription::BlockSubscription::subscribe(api).await?;
     let bioauth_settings_map = bioauth_settings::BioauthSettingsMap::new();
     let rw_bioauth_settings_map = Arc::new(RwLock::new(bioauth_settings_map));
-
+    let dev_subscriptions_map =
+        dev_subscriptions::DevSubscriptionMap::new();
+    let rw_dev_subscriptions_map =
+        Arc::new(RwLock::new(dev_subscriptions_map));
     let telegram = telegram::Telegram {
         bot,
         storage,
         rw_bioauth_settings_map: Arc::clone(&rw_bioauth_settings_map),
+        rw_dev_subscriptions_map: Arc::clone(&rw_dev_subscriptions_map),
+        admin_chat_ids,
     };
 
     telegram.set_commands().await?;
@@ -64,6 +74,7 @@ async fn main() -> Result<(), anyhow::Error> {
         subscription_update_handle,
         telegram_notification_handle,
         rw_bioauth_settings_map: Arc::clone(&rw_bioauth_settings_map),
+        rw_dev_subscriptions_map: Arc::clone(&rw_dev_subscriptions_map),
     })
     .await?;
 
