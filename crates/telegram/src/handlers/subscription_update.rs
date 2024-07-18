@@ -10,7 +10,7 @@ use super::{
 };
 
 use super::manage_validator_subscriptions;
-use super::utils::{set_local_commands, HanderError, HandlerResult};
+use super::utils::{set_local_commands, HandlerError, HandlerResult};
 use super::GlobalDialogue;
 
 #[derive(BotCommands, Clone, Debug)]
@@ -82,7 +82,7 @@ pub async fn cancel(bot: Bot, msg: Message, dialogue: GlobalDialogue) -> Handler
     super::transition_to_start(chat_id, &bot, dialogue).await
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     let update_commands = teloxide::filter_command::<Command, _>()
         .branch(dptree::case![Command::Help].endpoint(help))
         .branch(

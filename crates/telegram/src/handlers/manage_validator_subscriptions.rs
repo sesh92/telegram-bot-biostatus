@@ -13,7 +13,7 @@ use crate::handlers::subscription_update;
 use super::State as GlobalState;
 use super::{
     subscribe,
-    utils::{set_local_commands, HanderError, HandlerResult},
+    utils::{set_local_commands, HandlerError, HandlerResult},
 };
 use super::{Command as RootCommand, GlobalDialogue};
 
@@ -182,7 +182,7 @@ async fn callback_handler(
     Ok(())
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     let root_command_handler = teloxide::filter_command::<RootCommand, _>()
         .branch(dptree::case![RootCommand::ManageValidatorSubscriptions].endpoint(start));
 

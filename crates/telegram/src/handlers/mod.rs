@@ -6,7 +6,7 @@ use teloxide::{
 };
 use utils::{set_local_commands, HandlerResult};
 
-use self::utils::HanderError;
+use self::utils::HandlerError;
 
 pub mod admin;
 pub mod common;
@@ -60,7 +60,7 @@ pub enum State {
     ManageNotificationFromDeveloper(manage_dev_subscriptions::State),
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     dptree::entry()
         .branch(manage_validator_subscriptions::schema())
         .branch(manage_dev_subscriptions::schema())

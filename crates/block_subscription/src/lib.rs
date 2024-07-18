@@ -29,7 +29,7 @@ pub struct BlockInfo {
 #[derive(Debug)]
 pub enum NewBlockError {
     BlockNotReceived,
-    SubscribtionBlocksError(subxt::Error),
+    SubscriptionBlocksError(subxt::Error),
     ActiveAuthenticationNotReceived(subxt::Error),
 }
 
@@ -55,7 +55,7 @@ impl BlockSubscription {
             Some(res) => res,
         };
 
-        let block = res.map_err(NewBlockError::SubscribtionBlocksError)?;
+        let block = res.map_err(NewBlockError::SubscriptionBlocksError)?;
         let block_number = block.number();
 
         let query = &gen::humanode::storage().bioauth().active_authentications();

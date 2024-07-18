@@ -4,18 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-database = { version = "0.1", path = "../database" }
-telegram = { version = "0.1", path = "../telegram" }
-main_loop = { version = "0.1", path = "../main_loop" }
-block_subscription = { version = "0.1", path = "../block_subscription" }
 bioauth_settings = { version = "0.1", path = "../bioauth_settings" }
+block_subscription = { version = "0.1", path = "../block_subscription" }
+database = { version = "0.1", path = "../database" }
 dev_subscriptions = { version = "0.1", path = "../dev_subscriptions" }
+main_loop = { version = "0.1", path = "../main_loop" }
+telegram = { version = "0.1", path = "../telegram" }
 
 anyhow = "1"
-diesel = { version = "2.1", features = ["postgres"] }
 diesel-async = { version = "0.4", features = ["postgres", "bb8"] }
 envfury = "0.2"
-hex = "0.4"
 teloxide = { version = "0.12", features = ["macros", "bincode-serializer", "redis-storage"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

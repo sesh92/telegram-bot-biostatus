@@ -5,7 +5,7 @@ use teloxide::{
 };
 
 use super::{
-    utils::{HanderError, HandlerResult},
+    utils::{HandlerError, HandlerResult},
     Command, GlobalDialogue, State as GlobalState,
 };
 
@@ -44,12 +44,12 @@ async fn help(bot: Bot, message: Message) -> HandlerResult {
 
 async fn reset_state(bot: Bot, dialogue: GlobalDialogue, message: Message) -> HandlerResult {
     let chat_id = message.chat.id;
-    bot.send_message(chat_id, "Reseting state").await?;
+    bot.send_message(chat_id, "Resetting state").await?;
 
     super::transition_to_start(chat_id, &bot, dialogue).await
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     dptree::entry().branch(
         Update::filter_message()
             .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()

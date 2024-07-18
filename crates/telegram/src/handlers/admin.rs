@@ -7,7 +7,7 @@ use teloxide::{
 };
 
 use super::{
-    utils::{HanderError, HandlerResult},
+    utils::{HandlerError, HandlerResult},
     State as GlobalState,
 };
 
@@ -51,7 +51,7 @@ async fn start(
     Ok(())
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     dptree::entry().branch(
         Update::filter_message()
             .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()

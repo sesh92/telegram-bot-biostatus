@@ -10,11 +10,9 @@ dev_subscriptions = { version = "0.1", path = "../dev_subscriptions" }
 
 anyhow = "1"
 derivative = "2"
-hex = "0.4"
-indoc = "2"
 serde = "1"
+sp-core = "34"
 subxt = "0.37"
-sp-core = "33"
 teloxide = { version = "0.12", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

@@ -12,7 +12,7 @@ use super::State as GlobalState;
 use crate::SubscriptionUpdate;
 
 use super::manage_validator_subscriptions;
-use super::utils::{set_local_commands, HanderError, HandlerResult};
+use super::utils::{set_local_commands, HandlerError, HandlerResult};
 use super::GlobalDialogue;
 
 #[derive(BotCommands, Clone, Debug)]
@@ -136,7 +136,7 @@ pub async fn cancel(bot: Bot, msg: Message, dialogue: GlobalDialogue) -> Handler
     set_local_commands(msg.chat.id, &bot, super::Command::bot_commands()).await
 }
 
-pub fn schema() -> UpdateHandler<HanderError> {
+pub fn schema() -> UpdateHandler<HandlerError> {
     let commands = teloxide::filter_command::<Command, _>()
         .branch(dptree::case![Command::Help].endpoint(help))
         .branch(dptree::case![Command::Cancel].endpoint(cancel));
