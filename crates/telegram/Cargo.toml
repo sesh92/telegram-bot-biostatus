@@ -14,7 +14,7 @@ hex = "0.4"
 indoc = "2"
 serde = "1"
 subxt = "0.37"
-sp-core = "33"
+sp-core = "34"
 teloxide = { version = "0.12", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
