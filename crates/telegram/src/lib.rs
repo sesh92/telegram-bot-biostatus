@@ -1,6 +1,9 @@
 //! Telegram implementation.
-
-#![allow(missing_docs, clippy::missing_docs_in_private_items)]
+#![allow(
+    missing_docs,
+    clippy::missing_docs_in_private_items,
+    clippy::multiple_crate_versions
+)]
 
 pub mod bioauth_handlers;
 mod handlers;
