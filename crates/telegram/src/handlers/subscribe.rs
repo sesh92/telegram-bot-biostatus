@@ -57,7 +57,7 @@ pub async fn command(
     bot.edit_message_text(
         message_data.0,
         message_data.1,
-        "Subcription action is activated",
+        "Subscription action is activated",
     )
     .await?;
 
