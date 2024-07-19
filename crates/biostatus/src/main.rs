@@ -1,6 +1,5 @@
 //! The entrypoint to the biostatus.
-
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::multiple_crate_versions)]
 
 use std::sync::Arc;
 
