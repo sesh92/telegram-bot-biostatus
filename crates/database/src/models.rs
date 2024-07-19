@@ -64,6 +64,6 @@ pub struct LoadForInitialization {
 pub struct AllDevSubscriptions {
     /// The telegram user's chat id.
     pub t_chat_id: i64,
-    ///
+    /// Category of dev subscription.
     pub affected_validator: bool,
 }
