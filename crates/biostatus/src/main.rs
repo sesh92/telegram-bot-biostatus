@@ -49,10 +49,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let block_subscription = block_subscription::BlockSubscription::subscribe(api).await?;
     let bioauth_settings_map = bioauth_settings::BioauthSettingsMap::new();
     let rw_bioauth_settings_map = Arc::new(RwLock::new(bioauth_settings_map));
-    let dev_subscriptions_map =
-        dev_subscriptions::DevSubscriptionMap::new();
-    let rw_dev_subscriptions_map =
-        Arc::new(RwLock::new(dev_subscriptions_map));
+    let dev_subscriptions_map = dev_subscriptions::DevSubscriptionMap::new();
+    let rw_dev_subscriptions_map = Arc::new(RwLock::new(dev_subscriptions_map));
     let telegram = telegram::Telegram {
         bot,
         storage,
