@@ -7,12 +7,12 @@ use std::collections::HashMap;
 use subxt::{backend::StreamOfResults, blocks::Block, OnlineClient, PolkadotConfig};
 
 /// The generated runtime data.
-mod gen {
+mod r#gen {
     #![allow(missing_docs, clippy::too_many_arguments, clippy::enum_variant_names)]
     #[subxt::subxt(runtime_metadata_path = "../../generated/humanode_metadata.scale")]
     pub mod humanode {}
 }
-pub use gen::humanode;
+pub use r#gen::humanode;
 
 #[derive(Debug)]
 pub struct BlockSubscription {
@@ -58,7 +58,9 @@ impl BlockSubscription {
         let block = res.map_err(NewBlockError::SubscriptionBlocksError)?;
         let block_number = block.number();
 
-        let query = &gen::humanode::storage().bioauth().active_authentications();
+        let query = &r#gen::humanode::storage()
+            .bioauth()
+            .active_authentications();
 
         let active_authentications = block
             .storage()
