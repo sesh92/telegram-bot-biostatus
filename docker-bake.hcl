@@ -1,13 +1,13 @@
 group "default" {
-  targets = ["main"]
+  targets = ["telegram-bot-biostatus"]
 }
 
-target "main" {
-  inherits = ["docker-metadata-action-main"]
+target "telegram-bot-biostatus" {
+  inherits = ["docker-metadata-action-telegram-bot-biostatus"]
   dockerfile = "Dockerfile"
-  target = "main"
+  target = "telegram-bot-biostatus"
 }
 
 # Targets to allow injecting customizations from Github Actions.
 
-target "docker-metadata-action-main" {}
+target "docker-metadata-action-telegram-bot-biostatus" {}
