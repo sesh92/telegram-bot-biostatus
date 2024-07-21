@@ -37,10 +37,10 @@ RUN --mount=type=cache,target=target,id=${TARGETPLATFORM} \
   mkdir -p /artifacts \
   && cd target/release \
   && cp -t /artifacts \
-  main \
+  telegram-bot-biostatus \
   && ls -la /artifacts
 
-FROM --platform=${TARGETPLATFORM} runtime AS main
-COPY --from=build /artifacts/main /usr/local/bin
-RUN ldd /usr/local/bin/main
-CMD ["main"]
+FROM --platform=${TARGETPLATFORM} runtime AS telegram-bot-biostatus
+COPY --from=build /artifacts/telegram-bot-biostatus /usr/local/bin
+RUN ldd /usr/local/bin/telegram-bot-biostatus
+CMD ["telegram-bot-biostatus"]

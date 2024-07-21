@@ -1,4 +1,5 @@
 **/*
+!generated
 !rust-toolchain.toml
 !Cargo.toml
 !Cargo.lock
