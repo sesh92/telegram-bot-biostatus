@@ -12,7 +12,7 @@ main_loop = { version = "0.1", path = "../main_loop" }
 telegram = { version = "0.1", path = "../telegram" }
 
 anyhow = "1"
-diesel-async = { version = "0.4", features = ["postgres", "bb8"] }
+diesel-async = { version = "0.5", features = ["postgres", "bb8"] }
 envfury = "0.2"
 teloxide = { version = "0.12", features = ["macros", "bincode-serializer", "redis-storage"] }
 tokio = { version = "1", features = ["full"] }
