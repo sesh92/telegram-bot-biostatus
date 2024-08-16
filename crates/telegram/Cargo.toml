@@ -13,7 +13,7 @@ derivative = "2"
 serde = "1"
 sp-core = "34"
 subxt = "0.37"
-teloxide = { version = "0.12", features = ["macros"] }
+teloxide = { version = "0.13", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 
